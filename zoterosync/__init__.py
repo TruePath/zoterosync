@@ -193,7 +193,7 @@ class ZoteroLibrary(object):
 
 class ZoteroObject(object):
 
-    _parent_key = ""   # override in inherited classes
+    _parent_key = None   # override in inherited classes
 
     def __init__(self, library, arg):
         self.library = library
@@ -240,7 +240,7 @@ class ZoteroObject(object):
             self._register_parent(pval)
 
     def set_property(self, pkey, pval):
-        if (pkey == "dateModified"):
+        if (pkey == "dateModified" or pkey == 'version'):
             return
         self.dirty = True
         if (pval is None):
@@ -268,7 +268,12 @@ class ZoteroObject(object):
             else:
                 self._changed_from[pkey] = None
         if (pkey in self.data):
-            del self.data[pkey]
+            if (pkey == 'relations'):
+                self.data[pkey] = dict()
+            elif (pkey == 'collections' or pkey == 'tags' or pkey == 'creators'):
+                self.data[pkey] = list()
+            else:
+                self.data[pkey] = ''
         if (pkey == self._parent_key):
             self._register_parent(None)
             self.data[self._parent_key] = "false"
@@ -334,8 +339,6 @@ class ZoteroObject(object):
 
 class ZoteroItem(ZoteroObject):
 
-    _parent_key = "parentItem"   # override in inherited classes
-
     def __init__(self, library, arg):
         self._collections = set()
         super().__init__(library, arg)
@@ -387,7 +390,8 @@ class ZoteroItem(ZoteroObject):
             if (cur_mod is None):
                 self.data["dateModified"] = pval
             else:
-                self.data["dateModified"] = max(cur_mod, dateutil.parser.parse(pval)).isoformat("T") + "Z"
+                self.data["dateModified"] = max(cur_mod, dateutil.parser.parse(pval)
+                                                ).replace(tzinfo=None).isoformat("T") + "Z"
         else:
             super()._refresh_property(pkey, pval)
 
@@ -447,8 +451,19 @@ class ZoteroItem(ZoteroObject):
             dt = val
         else:
             dt = dateutil.parser.parse(val)
-        self.set_property("dateAdded", dt.isoformat("T") + "Z")
+        self.set_property("dateAdded", dt.replace(tzinfo=None).isoformat("T") + "Z")
         return dt
+
+    @property
+    def date(self):
+        if ("date" in self.data):
+            return self.data["date"]
+        else:
+            return None
+
+    @date.setter
+    def date(self, val):
+        self.set_property("date", val)
 
 
 class ZoteroDocument(ZoteroItem):
@@ -465,16 +480,18 @@ class ZoteroDocument(ZoteroItem):
         if (pkey == "itemType"):
             if (pval not in self.library.item_types):
                 raise InvalidProperty("Tried to set itemType to {}".format(pval))
-        super()._refresh_property(pkey, pval)
+        super()._register_property(pkey, pval)
 
 
 class ZoteroAttachment(ZoteroItem):
+
+    _parent_key = "parentItem"   # override in inherited classes
 
     def _register_property(self, pkey, pval):
         if (pkey == "itemType"):
             if (pval != "attachment"):
                 raise InvalidProperty("Can't change attachment itemType")
-        super()._refresh_property(pkey, pval)
+        super()._register_property(pkey, pval)
 
 
 class ZoteroCollection(ZoteroObject):

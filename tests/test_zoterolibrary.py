@@ -67,7 +67,21 @@ def test_modifydoc_simp(zdocsimp):
 	zdoc = zdocsimp
 	zdoc.title = "new title"
 	zdoc.date_added = datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
-	with pytest.raises(InvalidProperty):
+	with pytest.raises(zoterosync.InvalidProperty):
 		zdoc.type = "BSTYPE"
 	zdoc.set_property('itemType', "bookSection")
 	zdoc.set_property('date', "2001")
+	zdoc.set_property('version', 7)  #should do nothing
+	assert zdoc.title == "new title"
+	assert zdoc.version == 1
+	assert zdoc.date == "2001"
+	assert zdoc.type == "bookSection"
+	assert zdoc.date_added == datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
+	assert zdoc.data["dateAdded"] == '2016-12-24T02:55:29Z'
+	assert zdoc.dirty is True
+	assert zdoc.date_modified > datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
+	assert zdoc._changed_from["title"] == 'Global optimization techniques for automatic parallelization of hybrid applications'
+	assert zdoc._changed_from["dateAdded"] == '2013-12-25T01:42:47Z'
+	assert "dateModified" not in zdoc._changed_from
+	assert zdoc._changed_from["date"] is None
+	assert zdoc._changed_from['itemType'] == "conferencePaper"
