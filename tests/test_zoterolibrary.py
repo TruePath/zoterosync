@@ -204,3 +204,37 @@ def test_refresh_create_collections(zoterolocal, zdoc_refresh_collections):
 	assert ctwo in lib._collections
 	assert zdoc in cone.members
 	assert zdoc in ctwo.members
+
+def test_create_tags(zoterolocal, zdoc_tags):
+	zdoc = zdoc_tags
+	lib = zoterolocal
+	assert 'tags' in zdoc
+	assert zdoc["tags"] == {'parallel', 'test'}
+	assert 'parallel' in lib._tags
+	assert 'test' in lib._tags
+	assert zdoc in lib._tags['parallel']
+	assert zdoc in lib._tags['test']
+
+def test_refresh_create_tags(zoterolocal, zdoc_refresh_tags):
+	zdoc = zdoc_refresh_tags
+	lib = zoterolocal
+	assert 'tags' in zdoc
+	assert zdoc["tags"] == {'parallel', 'test'}
+	assert 'parallel' in lib._tags
+	assert 'test' in lib._tags
+	assert zdoc in lib._tags['parallel']
+	assert zdoc in lib._tags['test']
+
+def test_create_relations(zoterolocal, zdoc_relations):
+	zdoc = zdoc_relations
+	lib = zoterolocal
+	assert 'relations' in zdoc
+	assert zdoc["relations"] == {'dc:replaces': ['url1', 'url2'],
+                           'dc:bs': ['test1', 'test2']}
+
+def test_refresh_create_relations(zoterolocal, zdoc_refresh_relations):
+	zdoc = zdoc_refresh_relations
+	lib = zoterolocal
+	assert 'relations' in zdoc
+	assert zdoc["relations"] == {'dc:replaces': ['url1', 'url2'],
+                           'dc:bs': ['test1', 'test2']}
