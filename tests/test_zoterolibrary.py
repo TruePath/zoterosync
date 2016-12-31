@@ -10,6 +10,9 @@ def zoterolocal():
 def zdocsimp(zoterolocal):
 	return zoterosync.ZoteroDocument(zoterolocal, docsimp)
 
+@pytest.fixture
+def zdocone(zoterolocal):
+	return zoterosync.ZoteroDocument(zoterolocal, docone)
 
 docsimp = { 'data': {
         'proceedingsTitle': 'Proceedings on Supercomputing',
@@ -27,8 +30,7 @@ docsimp = { 'data': {
       }
 
 docone = { 'data': {
-        'proceedingsTitle': 'Proceedings of the 15th international conference on Supercomputing'
-            ,
+				'proceedingsTitle': 'Proceedings on Supercomputing',
         'collections': ['2QWF3CPM'],
         'relations': {'dc:replaces': ['http://zotero.org/users/3661336/items/DBQFTAHP'
                       , 'http://zotero.org/users/3661336/items/C6IAXB94'
@@ -40,13 +42,13 @@ docone = { 'data': {
         'tags': [{'tag': 'parallel'}],
         'itemType': 'conferencePaper',
         'title': 'Global optimization techniques for automatic parallelization of hybrid applications',
-        'version': 4024,
-        'creators': [{'creatorType': 'author', 'firstName': 'Dhruva R.'
+        'version': 1,
+        'date': '2001',
+         'creators': [{'creatorType': 'author', 'firstName': 'Dhruva R.'
                      , 'lastName': 'Chakrabarti'},
                      {'creatorType': 'author', 'firstName': 'Prithviraj'
                      , 'lastName': 'Banerjee'}],
         'dateModified': '2016-12-24T02:55:29Z',
-        'date': '2001',
         'dateAdded': '2013-12-25T01:42:47Z',
         }
       }
@@ -62,6 +64,57 @@ def test_createdoc_simp(zdocsimp):
 	assert zdoc.date_modified == datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
 	assert zdoc.dirty is False
 	assert zdoc.date_added == datetime.datetime(2013, 12, 25, 1, 42, 47, tzinfo=datetime.timezone.utc)
+	assert zdoc['parent'] is None
+	assert zdoc['title'] == zdoc.title
+	assert zdoc.date_modified == zdoc["dateModified"]
+	assert zdoc.date_added == zdoc["dateAdded"]
+	assert 'parent' not in zdoc
+	assert 'key' not in zdoc
+	assert 'version' not in zdoc
+	assert 'title' in zdoc
+	assert "dateModified" in zdoc
+	assert "dateAdded" in zdoc
+	assert "creators" in zdoc
+	assert zdoc.creators == zdoc["creators"]
+	assert len(zdoc.creators) == 2
+	assert zdoc.creators[0].firstname == 'Dhruva R.'
+	assert zdoc.creators[0].lastname == 'Chakrabarti'
+	assert zdoc.creators[0].type == 'author'
+	assert zdoc.creators[1].firstname == 'Prithviraj'
+	assert zdoc.creators[1].lastname == 'Banerjee'
+	assert zdoc.creators[1].type == 'author'
+
+def test_refreshcreatedoc_simp(zoterolocal):
+	zdoc = zoterosync.ZoteroDocument(zoterolocal, docsimp)
+	zdoc.refresh(docsimp)
+	assert zdoc.key == '52JRNN9E'
+	assert zdoc.parent is None
+	assert zdoc.title == 'Global optimization techniques for automatic parallelization of hybrid applications'
+	assert zdoc.type == "conferencePaper"
+	assert zdoc.version == 1
+	assert zdoc.date_modified == datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
+	assert zdoc.dirty is False
+	assert zdoc.date_added == datetime.datetime(2013, 12, 25, 1, 42, 47, tzinfo=datetime.timezone.utc)
+	assert len(zdoc._changed_from) == 0
+	assert zdoc['parent'] is None
+	assert zdoc['title'] == zdoc.title
+	assert zdoc.date_modified == zdoc["dateModified"]
+	assert zdoc.date_added == zdoc["dateAdded"]
+	assert 'parent' not in zdoc
+	assert 'key' not in zdoc
+	assert 'version' not in zdoc
+	assert 'title' in zdoc
+	assert "dateModified" in zdoc
+	assert "dateAdded" in zdoc
+	assert "creators" in zdoc
+	assert zdoc.creators == zdoc["creators"]
+	assert len(zdoc.creators) == 2
+	assert zdoc.creators[0].firstname == 'Dhruva R.'
+	assert zdoc.creators[0].lastname == 'Chakrabarti'
+	assert zdoc.creators[0].type == 'author'
+	assert zdoc.creators[1].firstname == 'Prithviraj'
+	assert zdoc.creators[1].lastname == 'Banerjee'
+	assert zdoc.creators[1].type == 'author'
 
 def test_modifydoc_simp(zdocsimp):
 	zdoc = zdocsimp
@@ -69,15 +122,15 @@ def test_modifydoc_simp(zdocsimp):
 	zdoc.date_added = datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
 	with pytest.raises(zoterosync.InvalidProperty):
 		zdoc.type = "BSTYPE"
-	zdoc.set_property('itemType', "bookSection")
-	zdoc.set_property('date', "2001")
-	zdoc.set_property('version', 7)  #should do nothing
+	zdoc.type = "bookSection"
+	zdoc["date"] = "2001"
+	assert zdoc.parent is None
 	assert zdoc.title == "new title"
 	assert zdoc.version == 1
 	assert zdoc.date == "2001"
 	assert zdoc.type == "bookSection"
 	assert zdoc.date_added == datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
-	assert zdoc.data["dateAdded"] == '2016-12-24T02:55:29Z'
+	assert zdoc._data["dateAdded"] == '2016-12-24T02:55:29Z'
 	assert zdoc.dirty is True
 	assert zdoc.date_modified > datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
 	assert zdoc._changed_from["title"] == 'Global optimization techniques for automatic parallelization of hybrid applications'
@@ -85,3 +138,17 @@ def test_modifydoc_simp(zdocsimp):
 	assert "dateModified" not in zdoc._changed_from
 	assert zdoc._changed_from["date"] is None
 	assert zdoc._changed_from['itemType'] == "conferencePaper"
+	assert zdoc['parent'] is None
+	assert zdoc['title'] == zdoc.title
+	assert zdoc.date_modified == zdoc["dateModified"]
+	assert zdoc.date_added == zdoc["dateAdded"]
+	assert 'parent' not in zdoc
+	assert 'key' not in zdoc
+	assert 'version' not in zdoc
+	assert 'title' in zdoc
+	assert "date" in zdoc
+	assert "dateModified" in zdoc
+	assert "dateAdded" in zdoc
+
+def test_create_docone(zdocone):
+	pass
