@@ -297,9 +297,9 @@ class ZoteroObject(object):
 
     def refresh(self, dict):
         try:
-            if (self.version < dict["data"]["version"]):
-                raise ConsistencyError("Tried to update an item with version: " + self.version +
-                                       " with data versioned at: " + dict["data"]["version"])
+            if (self.version >= dict["data"]["version"]):
+                raise ConsistencyError("Tried to update an item with version: " +
+                                       "{} with data versioned at: {}".format(self.version,  dict["data"]["version"]))
             self._data["version"] = dict["data"]["version"]
             for k in (q for q in dict["data"] if (q != "key" and q != "version")):
                 self._refresh_property(k, dict["data"][k])

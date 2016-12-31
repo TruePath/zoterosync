@@ -12,10 +12,20 @@ def zdocsimp(zoterolocal):
 	return zoterosync.ZoteroDocument(zoterolocal, docsimp)
 
 @pytest.fixture
+def zdocsimp_keyonly(zoterolocal):
+	return zoterosync.ZoteroDocument(zoterolocal, '52JRNN9E')
+
+@pytest.fixture
 def zdoc_collections(zoterolocal):
 	doc_col = copy.deepcopy(docsimp)
 	doc_col['data']['collections'] = ['2QWF3CPM', '3QWF3CPM']
 	return zoterosync.ZoteroDocument(zoterolocal, doc_col)
+
+@pytest.fixture
+def zdoc_refresh_collections(zoterolocal, zdocsimp_keyonly):
+	doc_col = copy.deepcopy(docsimp)
+	doc_col['data']['collections'] = ['2QWF3CPM', '3QWF3CPM']
+	return zdocsimp_keyonly.refresh(doc_col)
 
 @pytest.fixture
 def zdoc_tags(zoterolocal):
@@ -24,11 +34,24 @@ def zdoc_tags(zoterolocal):
 	return zoterosync.ZoteroDocument(zoterolocal, doc_tags)
 
 @pytest.fixture
+def zdoc_refresh_tags(zoterolocal, zdocsimp_keyonly):
+	doc_tags = copy.deepcopy(docsimp)
+	doc_tags['data']['tags'] = [{'tag': 'parallel'}, {'tag': 'test'}]
+	return zdocsimp_keyonly.refresh(doc_tags)
+
+@pytest.fixture
 def zdoc_relations(zoterolocal):
 	doc_rels = copy.deepcopy(docsimp)
 	doc_rels['data']['relations'] = {'dc:replaces': ['url1', 'url2'],
                            'dc:bs': ['test1', 'test2']}
 	return zoterosync.ZoteroDocument(zoterolocal, doc_rels)
+
+@pytest.fixture
+def zdoc_refresh_relations(zoterolocal, zdocsimp_keyonly):
+	doc_rels = copy.deepcopy(docsimp)
+	doc_rels['data']['relations'] = {'dc:replaces': ['url1', 'url2'],
+                           'dc:bs': ['test1', 'test2']}
+	return zdocsimp_keyonly.refresh(doc_rels)
 
 docsimp = { 'data': {
         'proceedingsTitle': 'Proceedings on Supercomputing',
@@ -78,7 +101,7 @@ def test_createdoc_simp(zdocsimp):
 	assert zdoc.creators[1].type == 'author'
 
 def test_refreshcreatedoc_simp(zoterolocal):
-	zdoc = zoterosync.ZoteroDocument(zoterolocal, docsimp)
+	zdoc = zoterosync.ZoteroDocument(zoterolocal, '52JRNN9E')
 	zdoc.refresh(docsimp)
 	assert zdoc.key == '52JRNN9E'
 	assert zdoc.parent is None
@@ -143,9 +166,9 @@ def test_modifydoc_simp(zdocsimp):
 	assert "dateModified" in zdoc
 	assert "dateAdded" in zdoc
 
-def test_create_collections(zdoc_collections):
+def test_create_collections(zoterolocal, zdoc_collections):
 	zdoc = zdoc_collections
-	lib = zdoc._library
+	lib = zoterolocal
 	assert 'collections' in zdoc
 	cols = zdoc["collections"].copy()
 	assert len(cols) == 2
