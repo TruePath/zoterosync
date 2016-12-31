@@ -72,9 +72,10 @@ docsimp = { 'data': {
       }
 
 
-def test_createdoc_simp(zdocsimp):
+def test_createdoc_simp(zoterolocal, zdocsimp):
 	# zdoc = zoterosync.ZoteroDocument(zoterolocal, docsimp)
 	zdoc = zdocsimp
+	lib = zoterolocal
 	assert zdoc.key == '52JRNN9E'
 	assert zdoc.parent is None
 	assert zdoc.title == 'Global optimization techniques for automatic parallelization of hybrid applications'
@@ -102,9 +103,14 @@ def test_createdoc_simp(zdocsimp):
 	assert zdoc.creators[1].firstname == 'Prithviraj'
 	assert zdoc.creators[1].lastname == 'Banerjee'
 	assert zdoc.creators[1].type == 'author'
+	assert zdoc in lib._documents
+	assert lib.get_obj_by_key(zdoc.key) == zdoc
 
 def test_refreshcreatedoc_simp(zoterolocal):
 	zdoc = zoterosync.ZoteroDocument(zoterolocal, '52JRNN9E')
+	lib = zoterolocal
+	assert zdoc in lib._documents
+	assert lib.get_obj_by_key(zdoc.key) == zdoc
 	zdoc.refresh(docsimp)
 	assert zdoc.key == '52JRNN9E'
 	assert zdoc.parent is None
@@ -134,6 +140,8 @@ def test_refreshcreatedoc_simp(zoterolocal):
 	assert zdoc.creators[1].firstname == 'Prithviraj'
 	assert zdoc.creators[1].lastname == 'Banerjee'
 	assert zdoc.creators[1].type == 'author'
+	assert zdoc in lib._documents
+	assert lib.get_obj_by_key(zdoc.key) == zdoc
 
 def test_modifydoc_simp(zdocsimp):
 	zdoc = zdocsimp
@@ -168,6 +176,12 @@ def test_modifydoc_simp(zdocsimp):
 	assert "date" in zdoc
 	assert "dateModified" in zdoc
 	assert "dateAdded" in zdoc
+
+def test_register_new_collection(zoterolocal):
+	lib = zoterolocal
+	cthree = zoterosync.ZoteroCollection(lib, '4QWF3CPM')
+	assert lib.get_obj_by_key(cthree.key) == cthree
+	assert cthree in lib._collections
 
 def test_create_collections(zoterolocal, zdoc_collections):
 	zdoc = zdoc_collections
@@ -211,9 +225,26 @@ def test_modify_collections(zoterolocal, zdoc_collections):
 	cols = zdoc["collections"].copy()
 	cone = cols.pop()
 	ctwo = cols.pop()
-	zdoc["collections"] = { cone }
-	assert zdoc["collections"] == { cone }
+	cthree = zoterosync.ZoteroCollection(zoterolocal, '4QWF3CPM')
+	zdoc["collections"] = { cone, cthree }
+	assert zdoc["collections"] == { cone, cthree }
 	assert zdoc in cone.members
+	assert zdoc not in ctwo.members
+	assert zdoc in cthree.members
+	assert zdoc.dirty is True
+	assert len(zdoc._changed_from["collections"]) == 2
+	assert '2QWF3CPM' in zdoc._changed_from["collections"]
+	assert '3QWF3CPM' in zdoc._changed_from["collections"]
+
+def test_del_collections(zoterolocal, zdoc_collections):
+	zdoc = zdoc_collections
+	lib = zoterolocal
+	cols = zdoc["collections"].copy()
+	cone = cols.pop()
+	ctwo = cols.pop()
+	del zdoc["collections"]
+	assert zdoc["collections"] == set()
+	assert zdoc not in cone.members
 	assert zdoc not in ctwo.members
 	assert zdoc.dirty is True
 	assert len(zdoc._changed_from["collections"]) == 2

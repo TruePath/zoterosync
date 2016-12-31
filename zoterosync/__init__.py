@@ -210,11 +210,21 @@ class ZoteroLibrary(object):
     def build_name_key(string):
         return re.sub('[\s-_\+:~*&()]', '', string.lower())
 
-    def get_obj_by_tag(self, tag):
-        if (tag in self._objects_by_tag):
-            return self._objects_by_tag[tag]
+    def get_obj_by_key(self, key):
+        if (key in self._objects_by_key):
+            return self._objects_by_key[key]
         else:
             return None
+
+    def _register_obj(self, obj):
+        if (obj.key not in self._objects_by_key):
+            self._objects_by_key[obj.key] = obj
+
+    def _register_collection(self, obj):
+        self._collections.add(obj)
+
+    def _register_document(self, obj):
+        self._documents.add(obj)
 
     def _register_parent(self, obj, pkey):
         if (obj.parent is not None):
@@ -225,12 +235,8 @@ class ZoteroLibrary(object):
             if (pkey not in self._objects_by_key):
                 if (isinstance(obj, ZoteroItem)):
                     parent = ZoteroDocument(self, pkey)
-                    self._objects_by_key[pkey] = parent
-                    self._documents.add(parent)
                 elif (isinstance(obj, ZoteroCollection)):
                     parent = ZoteroCollection(self, pkey)
-                    self._objects_by_key[pkey] = parent
-                    self._collections.add(parent)
             else:
                 parent = self._objects_by_key[pkey]
             parent.children.add(obj)
@@ -245,8 +251,6 @@ class ZoteroLibrary(object):
                      "collection key=%s", obj.key, ckey)
         if (ckey not in self._objects_by_key):
             col = ZoteroCollection(self, ckey)
-            self._objects_by_key[ckey] = col
-            self._collections.add(col)
         else:
             col = self._objects_by_key[ckey]
         col.members.add(obj)
@@ -294,6 +298,7 @@ class ZoteroObject(object):
                 raise InvalidData(dict) from e
         else:
             self._data = dict(key=arg, version=-1)
+        self._library._register_obj(self)
 
     def refresh(self, dict):
         try:
@@ -372,7 +377,7 @@ class ZoteroObject(object):
             if (pkey not in self._changed_from):
                 if (pkey in self._data):
                     self._changed_from[pkey] = self._data[pkey]
-                elif (pkey == 'collections' or pkey == 'tags' or pkey == 'creators'):
+                elif (pkey == 'creators'):
                     self._changed_from[pkey] = list()
                 elif (pkey == 'relations'):
                     self._changed_from[pkey] = dict()
@@ -381,7 +386,7 @@ class ZoteroObject(object):
             if (pkey in self._data):
                 if (pkey == 'relations'):
                     self._data[pkey] = dict()
-                elif (pkey == 'collections' or pkey == 'tags' or pkey == 'creators'):
+                elif (pkey == 'creators'):
                     self._data[pkey] = list()
                 else:
                     self._data[pkey] = ''
@@ -573,6 +578,20 @@ class ZoteroItem(ZoteroObject):
         else:
             return super().__getitem__(pkey)
 
+    def __delitem__(self, pkey):
+        if (pkey == "collections"):
+            self.collections = set()
+        elif (pkey == "tags"):
+            self.tags = set()
+        elif (pkey == "dateModified"):
+            return  # can't delete this property
+        elif (pkey == "dateAdded"):
+            self.date_added = None
+        elif (pkey == "creators"):
+            self.creators = list()
+        else:
+            super().__delitem__(pkey)
+
     def properties(self):
         yield "dateModified"
         yield from (p for p in super().properties() if (p != "dateModified" and p != "itemType" and p != "linkMode"))
@@ -706,6 +725,10 @@ class ZoteroItem(ZoteroObject):
 
 class ZoteroDocument(ZoteroItem):
 
+    def __init__(self, library, arg):
+        super().__init__(library, arg)
+        self._library._register_document(self)
+
     def _set_property(self, pkey, pval):
         logger.debug("called _set_property in ZoteroDocument with pkey=%s and pval=%s", pkey, pval)
         if (pkey == "itemType" and pval not in self._library.item_types):
@@ -716,6 +739,10 @@ class ZoteroDocument(ZoteroItem):
 class ZoteroAttachment(ZoteroItem):
 
     _parent_key = "parentItem"   # override in inherited classes
+
+    def __init__(self, library, arg):
+        super().__init__(library, arg)
+        self._library._register_attachment(self)
 
     def _set_property(self, pkey, pval):
         logger.debug("called _set_property in ZoteroAttachment")
@@ -730,6 +757,13 @@ class ZoteroAttachment(ZoteroItem):
     @property
     def link_mode(self):
         return self._data["linkMode"]
+
+    @property
+    def md5(self):
+        if ("md5" in self._data):
+            return self._data["md5"]
+        else:
+            return None
 
 
 class ZoteroLinkedFile(ZoteroAttachment):
@@ -765,6 +799,7 @@ class ZoteroCollection(ZoteroObject):
     def __init__(self, library, arg):
         self.members = set()
         super().__init__(library, arg)
+        self._library._register_collection(self)
 
 
 # try:
