@@ -1,6 +1,7 @@
 import pytest
 import zoterosync
 import datetime
+import copy
 
 @pytest.fixture
 def zoterolocal():
@@ -11,8 +12,23 @@ def zdocsimp(zoterolocal):
 	return zoterosync.ZoteroDocument(zoterolocal, docsimp)
 
 @pytest.fixture
-def zdocone(zoterolocal):
-	return zoterosync.ZoteroDocument(zoterolocal, docone)
+def zdoc_collections(zoterolocal):
+	doc_col = copy.deepcopy(docsimp)
+	doc_col['data']['collections'] = ['2QWF3CPM', '3QWF3CPM']
+	return zoterosync.ZoteroDocument(zoterolocal, doc_col)
+
+@pytest.fixture
+def zdoc_tags(zoterolocal):
+	doc_tags = copy.deepcopy(docsimp)
+	doc_tags['data']['tags'] = [{'tag': 'parallel'}, {'tag': 'test'}]
+	return zoterosync.ZoteroDocument(zoterolocal, doc_tags)
+
+@pytest.fixture
+def zdoc_relations(zoterolocal):
+	doc_rels = copy.deepcopy(docsimp)
+	doc_rels['data']['relations'] = {'dc:replaces': ['url1', 'url2'],
+                           'dc:bs': ['test1', 'test2']}
+	return zoterosync.ZoteroDocument(zoterolocal, doc_rels)
 
 docsimp = { 'data': {
         'proceedingsTitle': 'Proceedings on Supercomputing',
@@ -29,29 +45,6 @@ docsimp = { 'data': {
         }
       }
 
-docone = { 'data': {
-				'proceedingsTitle': 'Proceedings on Supercomputing',
-        'collections': ['2QWF3CPM'],
-        'relations': {'dc:replaces': ['http://zotero.org/users/3661336/items/DBQFTAHP'
-                      , 'http://zotero.org/users/3661336/items/C6IAXB94'
-                      , 'http://zotero.org/users/3661336/items/VEIX2QFM'
-                      , 'http://zotero.org/users/3661336/items/DQMM2KFD'
-                      , 'http://zotero.org/users/3661336/items/HS74N2BJ'
-                      ]},
-        'key': '52JRNN9E',
-        'tags': [{'tag': 'parallel'}],
-        'itemType': 'conferencePaper',
-        'title': 'Global optimization techniques for automatic parallelization of hybrid applications',
-        'version': 1,
-        'date': '2001',
-         'creators': [{'creatorType': 'author', 'firstName': 'Dhruva R.'
-                     , 'lastName': 'Chakrabarti'},
-                     {'creatorType': 'author', 'firstName': 'Prithviraj'
-                     , 'lastName': 'Banerjee'}],
-        'dateModified': '2016-12-24T02:55:29Z',
-        'dateAdded': '2013-12-25T01:42:47Z',
-        }
-      }
 
 def test_createdoc_simp(zdocsimp):
 	# zdoc = zoterosync.ZoteroDocument(zoterolocal, docsimp)
@@ -150,5 +143,20 @@ def test_modifydoc_simp(zdocsimp):
 	assert "dateModified" in zdoc
 	assert "dateAdded" in zdoc
 
-def test_create_docone(zdocone):
-	pass
+def test_create_collections(zdoc_collections):
+	zdoc = zdoc_collections
+	lib = zdoc._library
+	assert 'collections' in zdoc
+	cols = zdoc["collections"].copy()
+	assert len(cols) == 2
+	cone = cols.pop()
+	ctwo = cols.pop()
+	assert isinstance(cone, zoterosync.ZoteroCollection)
+	assert isinstance(ctwo, zoterosync.ZoteroCollection)
+	assert cone.key in ['2QWF3CPM', '3QWF3CPM']
+	assert ctwo.key in ['2QWF3CPM', '3QWF3CPM']
+	assert cone.key != ctwo.key
+	assert cone in lib._collections
+	assert ctwo in lib._collections
+	assert zdoc in cone.members
+	assert zdoc in ctwo.members

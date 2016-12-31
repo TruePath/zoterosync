@@ -241,13 +241,15 @@ class ZoteroLibrary(object):
     def _register_into_collection(self, obj, ckey):
         if (isinstance(ckey, ZoteroObject)):
             ckey = ckey.key
+        logger.debug("called _register_into_collection in ZoteroLibrary with obj.key=%s and " +
+                     "collection key=%s", obj.key, ckey)
         if (ckey not in self._objects_by_key):
             col = ZoteroCollection(self, ckey)
             self._objects_by_key[ckey] = col
             self._collections.add(col)
         else:
             col = self._objects_by_key[ckey]
-        col.members.add(col)
+        col.members.add(obj)
         return col
 
     def _register_outof_collection(self, obj, ckey):
@@ -282,7 +284,7 @@ class ZoteroObject(object):
         self._parent = None
         self._children = set()
         self._changed_from = dict()
-        if (type(arg) == dict):
+        if (isinstance(arg, dict)):
             try:
                 data = arg["data"]
                 self._data = dict(key=data["key"], version=data["version"])
@@ -313,6 +315,7 @@ class ZoteroObject(object):
             self._changed_from[k] = val
 
     def _register_property(self, pkey, pval):
+        logger.debug("called _register_property in ZoteroObject with pkey=%s and pval=%s", pkey, pval)
         if (isinstance(pval, ZoteroObject)):
             pval = pval.key
         self._data[pkey] = pval
@@ -476,6 +479,7 @@ class ZoteroItem(ZoteroObject):
         super().__init__(library, arg)
 
     def _register_property(self, pkey, pval):
+        logger.debug("called _register_property in ZoteroItem with pkey=%s and pval=%s", pkey, pval)
         if (pkey == "collections"):
             for c in self._collections:
                 self._library._register_outof_collection(self, c)
@@ -703,7 +707,7 @@ class ZoteroItem(ZoteroObject):
 class ZoteroDocument(ZoteroItem):
 
     def _set_property(self, pkey, pval):
-        logger.debug("called _set_property in ZoteroDocument")
+        logger.debug("called _set_property in ZoteroDocument with pkey=%s and pval=%s", pkey, pval)
         if (pkey == "itemType" and pval not in self._library.item_types):
             raise InvalidProperty("Tried to set itemType to {}".format(pval))
         super()._set_property(pkey, pval)
