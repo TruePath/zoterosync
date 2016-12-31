@@ -25,7 +25,8 @@ def zdoc_collections(zoterolocal):
 def zdoc_refresh_collections(zoterolocal, zdocsimp_keyonly):
 	doc_col = copy.deepcopy(docsimp)
 	doc_col['data']['collections'] = ['2QWF3CPM', '3QWF3CPM']
-	return zdocsimp_keyonly.refresh(doc_col)
+	zdocsimp_keyonly.refresh(doc_col)
+	return zdocsimp_keyonly
 
 @pytest.fixture
 def zdoc_tags(zoterolocal):
@@ -37,7 +38,8 @@ def zdoc_tags(zoterolocal):
 def zdoc_refresh_tags(zoterolocal, zdocsimp_keyonly):
 	doc_tags = copy.deepcopy(docsimp)
 	doc_tags['data']['tags'] = [{'tag': 'parallel'}, {'tag': 'test'}]
-	return zdocsimp_keyonly.refresh(doc_tags)
+	zdocsimp_keyonly.refresh(doc_tags)
+	return zdocsimp_keyonly
 
 @pytest.fixture
 def zdoc_relations(zoterolocal):
@@ -51,7 +53,8 @@ def zdoc_refresh_relations(zoterolocal, zdocsimp_keyonly):
 	doc_rels = copy.deepcopy(docsimp)
 	doc_rels['data']['relations'] = {'dc:replaces': ['url1', 'url2'],
                            'dc:bs': ['test1', 'test2']}
-	return zdocsimp_keyonly.refresh(doc_rels)
+	zdocsimp_keyonly.refresh(doc_rels)
+	return zdocsimp_keyonly
 
 docsimp = { 'data': {
         'proceedingsTitle': 'Proceedings on Supercomputing',
@@ -168,6 +171,24 @@ def test_modifydoc_simp(zdocsimp):
 
 def test_create_collections(zoterolocal, zdoc_collections):
 	zdoc = zdoc_collections
+	lib = zoterolocal
+	assert 'collections' in zdoc
+	cols = zdoc["collections"].copy()
+	assert len(cols) == 2
+	cone = cols.pop()
+	ctwo = cols.pop()
+	assert isinstance(cone, zoterosync.ZoteroCollection)
+	assert isinstance(ctwo, zoterosync.ZoteroCollection)
+	assert cone.key in ['2QWF3CPM', '3QWF3CPM']
+	assert ctwo.key in ['2QWF3CPM', '3QWF3CPM']
+	assert cone.key != ctwo.key
+	assert cone in lib._collections
+	assert ctwo in lib._collections
+	assert zdoc in cone.members
+	assert zdoc in ctwo.members
+
+def test_refresh_create_collections(zoterolocal, zdoc_refresh_collections):
+	zdoc = zdoc_refresh_collections
 	lib = zoterolocal
 	assert 'collections' in zdoc
 	cols = zdoc["collections"].copy()
