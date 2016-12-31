@@ -205,6 +205,21 @@ def test_refresh_create_collections(zoterolocal, zdoc_refresh_collections):
 	assert zdoc in cone.members
 	assert zdoc in ctwo.members
 
+def test_modify_collections(zoterolocal, zdoc_collections):
+	zdoc = zdoc_collections
+	lib = zoterolocal
+	cols = zdoc["collections"].copy()
+	cone = cols.pop()
+	ctwo = cols.pop()
+	zdoc["collections"] = { cone }
+	assert zdoc["collections"] == { cone }
+	assert zdoc in cone.members
+	assert zdoc not in ctwo.members
+	assert zdoc.dirty is True
+	assert len(zdoc._changed_from["collections"]) == 2
+	assert '2QWF3CPM' in zdoc._changed_from["collections"]
+	assert '3QWF3CPM' in zdoc._changed_from["collections"]
+
 def test_create_tags(zoterolocal, zdoc_tags):
 	zdoc = zdoc_tags
 	lib = zoterolocal

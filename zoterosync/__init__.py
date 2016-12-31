@@ -175,27 +175,27 @@ class ZoteroLibrary(object):
         self._dirty_objects.add(obj)
 
     def mark_clean(self, obj):
-        self._dirty_objects.remove(obj)
+        self._dirty_objects.discard(obj)
 
     def mark_for_deletion(self, obj):
         if (not obj.deleted):
             del self._objects_by_key[obj.key]
-            self._dirty_objects.remove(obj)
+            self._dirty_objects.discard(obj)
             if (isinstance(obj, ZoteroCollection)):
                 for item in obj.members:
                     item.remove_collection(obj)
-                self._collections.remove(obj)
+                self._collections.discard(obj)
                 self._deleted_objects.add(obj)
             elif (isinstance(obj, ZoteroDocument)):
                 key = self.build_name_key(obj.title)
                 if (key in self._documents_by_name):
                     del self._documents_by_name[key]
-                self._documents.remove(obj)
+                self._documents.discard(obj)
             elif (isinstance(obj, ZoteroAttachment)):
                 md5 = obj.md5
                 if (md5 in self._attachments_by_md5s):
                     del self._attachments_by_md5s[md5]
-                self._attachments.remove(obj)
+                self._attachments.discard(obj)
             self._deleted_objects.add(obj)
 
     def new_key(self):
@@ -218,7 +218,7 @@ class ZoteroLibrary(object):
 
     def _register_parent(self, obj, pkey):
         if (obj.parent is not None):
-            obj.parent.children.remove(obj)
+            obj.parent.children.discard(obj)
         if (pkey is not None and pkey != "false"):
             if (isinstance(pkey, ZoteroObject)):
                 pkey = pkey.key
@@ -257,7 +257,7 @@ class ZoteroLibrary(object):
             col = ckey
         else:
             col = self._objects_by_key[ckey]
-        col.members.remove(obj)
+        col.members.discard(obj)
         return col
 
     def _register_into_tag(self, obj, tag):
@@ -268,7 +268,7 @@ class ZoteroLibrary(object):
 
     def _register_outof_tag(self, obj, tag):
         if (tag in self._tags):
-            self._tags[tag].remove(obj)
+            self._tags[tag].discard(obj)
             if (len(self._tags[tag]) == 0):
                 del self._tags[tag]
 
