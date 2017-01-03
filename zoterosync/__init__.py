@@ -6,6 +6,7 @@ import logging
 import pickle
 import datetime
 import dateutil.parser
+from functools import wraps
 
 # create logger
 logger = logging.getLogger('zotero_sync')
@@ -34,6 +35,24 @@ logger.addHandler(ch)
 # we can print each item's item type and ID
 # for item in items:
 # print('Item: {0} | Key: {1}'.format(item['data']['itemType'], item['data']['key']))
+
+def subclassfactory(fact_method):
+    """fact_method takes the same args as init and returns the subclass appropriate to those args
+    that subclass may in turn override the same factory method and choose amoung it's subclasses.
+    If this factory method isn't overridden in the subclass an object of that class is inited.
+    fact_method is made into a cls method and must take at least a cls argument
+    """
+    @wraps(fact_method)
+    @classmethod
+    def wrapper(cls, *args, **kwargs):
+        subclass = fact_method(cls, *args, **kwargs)
+        submeth = getattr(subclass, fact_method.__name__)
+        curmeth = getattr(cls, fact_method.__name__)
+        if (submeth.__func__ == curmeth.__func__):
+            return subclass(*args, **kwargs)
+        else:
+            return submeth(*args, **kwargs)
+    return wrapper
 
 
 class ZoteroLibraryError(Exception):
@@ -150,8 +169,12 @@ class ZoteroLibrary(object):
     """
     AllowedKeyChars = "23456789ABCDEFGHIJKLMNPQRSTUVWXYZ"
 
-    def __init__(self, userid, apikey):
-        self._zot = zotero.Zotero(userid, "user", apikey)
+    @staticmethod
+    def factory(userid, apikey):
+        return ZoteroLibrary(zotero.Zotero(userid, "user", apikey))
+
+    def __init__(self, src):
+        self._zot = src
         self._documents_by_name = dict()
         self._attachments_by_md5s = dict()
         self.item_types = ["artwork", "audioRecording", "bill", "blogPost", "book", "bookSection", "case",
@@ -226,10 +249,18 @@ class ZoteroLibrary(object):
     def _register_document(self, obj):
         self._documents.add(obj)
 
+    def _register_attachment(self, obj):
+        self._attachments.add(obj)
+        if (obj.md5 is not None):
+            if (obj.md5 in self._attachments_by_md5s):
+                self._attachments_by_md5s[obj.md5].add(obj)
+            else:
+                self._attachments_by_md5s[obj.md5] = {obj}
+
     def _register_parent(self, obj, pkey):
         if (obj.parent is not None):
             obj.parent.children.discard(obj)
-        if (pkey is not None and pkey != "false"):
+        if (pkey and pkey != "false"):
             if (isinstance(pkey, ZoteroObject)):
                 pkey = pkey.key
             if (pkey not in self._objects_by_key):
@@ -280,6 +311,19 @@ class ZoteroLibrary(object):
 class ZoteroObject(object):
 
     _parent_key = None   # override in inherited classes
+
+    @subclassfactory
+    def factory(cls, library, dict):
+        try:
+            if ("itemType" in dict["data"]):
+                if (dict["data"]["itemType"] == "attachment"):
+                    return ZoteroAttachment
+                else:
+                    return ZoteroDocument
+            else:
+                return ZoteroCollection
+        except KeyError as e:
+            raise InvalidData(dict) from e
 
     def __init__(self, library, arg):
         self._library = library
@@ -392,7 +436,7 @@ class ZoteroObject(object):
                     self._data[pkey] = ''
             if (pkey == self._parent_key):
                 self._register_parent(None)
-                self._data[self._parent_key] = "false"
+                self._data[self._parent_key] = False
 
     def update(self, dict):
         for k in dict.keys():
@@ -739,6 +783,18 @@ class ZoteroDocument(ZoteroItem):
 class ZoteroAttachment(ZoteroItem):
 
     _parent_key = "parentItem"   # override in inherited classes
+
+    @subclassfactory
+    def factory(cls, library, dict):
+        try:
+            if (dict["data"]["linkMode"] == "linked_file"):
+                    return ZoteroLinkedFile
+            elif (dict["data"]["linkMode"] == "imported_file"):
+                    return ZoteroImportedFile
+            else:
+                raise InvalidData(dict, "Unkown attachment type")
+        except KeyError as e:
+            raise InvalidData(dict) from e
 
     def __init__(self, library, arg):
         super().__init__(library, arg)
