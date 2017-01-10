@@ -204,27 +204,57 @@ class ZoteroLibrary(object):
         self.abort = False
         self._revert = False
 
-
     def _queue_refresh(self):
         params = dict(limit=-1, format='versions')
         if (self._version is not None):
             params['since'] = self._version
             deleted = self._server.deleted(**params)
-
-        item_vers = self._server.items(**parms)
-        if (self._next_version is None):
-            self._next_version = int(self._server.request.headers.get('last-modified-version', 0))
+            for key in (i for k in deleted if (k == "items" or k == "collections") for i in deleted[k]):
+                if (key in self._objects_by_key):
+                    obj = self._objects_by_key[key]
+                    obj._remove()
+                    self._deleted_objects.discard(obj)
+        item_vers = self._server.items(**params)
+        self._next_version = int(self._server.request.headers.get('last-modified-version', 0))
         for key in item_vers:
             if (key not in self._objects_by_key or self._objects_by_key[key].version < item_vers[key]):
                 self._itemkeys_for_refresh.add(key)
-        coll_vers = self._server.collections(**parms)
+        coll_vers = self._server.collections(**params)
         for key in coll_vers:
             if (key not in self._objects_by_key or self._objects_by_key[key].version < coll_vers[key]):
                 self._collkeys_for_refresh.add(key)
 
-    def _refresh_queued_objs(self):
+    def _refresh_queued(self):
+        self._refresh_queued_colls()
+        self._refresh_queued_items()
+        if (len(self._collkeys_for_refresh) == 0 and len(self._itemkeys_for_refresh) == 0):
+            if (self._next_version is not None):
+                self._version = self._next_version
+                self._next_version = None
 
+    @staticmethod
+    def _fifty_keys_from_set(set):
+        idstring = ""
+        num = 0
+        for key in set:
+            idstring = idstring + key
+            num = num + 1
+            if (num >= 49):
+                return idstring
+            else:
+                idstring = idstring + ","
+        return idstring[:-1]  # kill final ,
 
+    def _refresh_queued_items(self):
+        while(len(self._itemkeys_for_refresh) > 0):
+            newitems = self._server.items(itemKeys=self._fifty_keys_from_set(self._itemkeys_for_refresh))
+            for i in newitems:
+                self._recieve_item(i)
+
+    def _refresh_queued_colls(self):
+        keys = self._collkeys_for_refresh.copy()
+        for key in keys:
+                self._recieve_collection(self._server.collection(key))
 
     def _update_item_types(self):
         self.item_types = [d["itemType"] for d in self._server.item_types()]
@@ -282,6 +312,7 @@ class ZoteroLibrary(object):
                 self._objects_by_key[key].refresh(dict)
             else:
                 ZoteroItem.factory(dict)
+            self._itemkeys_for_refresh.discard(key)
         except KeyError as e:
             raise InvalidData(dict) from e
 
@@ -294,6 +325,7 @@ class ZoteroLibrary(object):
                 self._objects_by_key[key].refresh(dict)
             else:
                 ZoteroCollection.factory(dict)
+            self._collkeys_for_refresh.discard(key)
         except KeyError as e:
             raise InvalidData(dict) from e
 
@@ -313,8 +345,6 @@ class ZoteroLibrary(object):
 
     def _register_obj(self, obj):
         self._objects_by_key[obj.key] = obj
-
-    def # figure out what order deletion will happen in so whether we remove to be deleted objects from collections
 
     def _register_collection(self, obj):
         self._collections.add(obj)
@@ -529,13 +559,15 @@ class ZoteroObject(object):
         self._parent = self._library._register_parent(self, ptag)
 
     def delete(self):
-        self._deleted = True
         self._library._mark_for_deletion(self)
         self._remove()
+        self._deleted = True
 
     def _remove(self):
         """removes object from the library.  Responsible for taking out of all containers and relations.
         """
+        if self.deleted:
+            return
         self._library._remove(self)
         self._library._register_parent(self, None)  # remove from any children collections
         for c in self._children:
@@ -723,6 +755,8 @@ class ZoteroItem(ZoteroObject):
         yield from (p for p in super().properties() if (p != "dateModified" and p != "itemType" and p != "linkMode"))
 
     def _remove(self):
+        if self.deleted:
+            return
         super()._remove()
         for c in self.collections:
             self._library._register_outof_collection(self, c)
@@ -973,6 +1007,8 @@ class ZoteroCollection(ZoteroObject):
         self._library._register_collection(self)
 
     def _remove(self):
+        if self.deleted:
+            return
         for i in self.members:
             i.remove_from_collection(self)
         super()._remove()
