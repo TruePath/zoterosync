@@ -84,6 +84,13 @@ class InvalidProperty(ZoteroLibraryError):
     """
     pass
 
+class EarlyExit(Exception):
+    """ Exception raised to exit from code in case of early exit (like SIGINT)
+    """
+
+    def __init__(self, revert=False):
+        self.revert = revert
+
 
 class Person(object):
 
@@ -174,7 +181,7 @@ class ZoteroLibrary(object):
         return ZoteroLibrary(zotero.Zotero(userid, "user", apikey))
 
     def __init__(self, src):
-        self._zot = src
+        self._server = src
         self._documents_by_name = dict()
         self._attachments_by_md5s = dict()
         self.item_types = ["artwork", "audioRecording", "bill", "blogPost", "book", "bookSection", "case",
@@ -190,9 +197,37 @@ class ZoteroLibrary(object):
         self._dirty_objects = set()
         self._deleted_objects = set()
         self._tags = dict()
+        self._version = None
+        self._collkeys_for_refresh = set()
+        self._itemkeys_for_refresh = set()
+        self._next_version = None
+        self.abort = False
+        self._revert = False
+
+
+    def _queue_refresh(self):
+        params = dict(limit=-1, format='versions')
+        if (self._version is not None):
+            params['since'] = self._version
+            deleted = self._server.deleted(**params)
+
+        item_vers = self._server.items(**parms)
+        if (self._next_version is None):
+            self._next_version = int(self._server.request.headers.get('last-modified-version', 0))
+        for key in item_vers:
+            if (key not in self._objects_by_key or self._objects_by_key[key].version < item_vers[key]):
+                self._itemkeys_for_refresh.add(key)
+        coll_vers = self._server.collections(**parms)
+        for key in coll_vers:
+            if (key not in self._objects_by_key or self._objects_by_key[key].version < coll_vers[key]):
+                self._collkeys_for_refresh.add(key)
+
+    def _refresh_queued_objs(self):
+
+
 
     def _update_item_types(self):
-        self.item_types = [d["itemType"] for d in self._zot.item_types()]
+        self.item_types = [d["itemType"] for d in self._server.item_types()]
 
     def mark_dirty(self, obj):
         self._dirty_objects.add(obj)
@@ -200,26 +235,25 @@ class ZoteroLibrary(object):
     def mark_clean(self, obj):
         self._dirty_objects.discard(obj)
 
-    def mark_for_deletion(self, obj):
-        if (not obj.deleted):
-            del self._objects_by_key[obj.key]
-            self._dirty_objects.discard(obj)
-            if (isinstance(obj, ZoteroCollection)):
-                for item in obj.members:
-                    item.remove_collection(obj)
-                self._collections.discard(obj)
-                self._deleted_objects.add(obj)
-            elif (isinstance(obj, ZoteroDocument)):
-                key = self.build_name_key(obj.title)
-                if (key in self._documents_by_name):
-                    del self._documents_by_name[key]
-                self._documents.discard(obj)
-            elif (isinstance(obj, ZoteroAttachment)):
-                md5 = obj.md5
-                if (md5 in self._attachments_by_md5s):
-                    del self._attachments_by_md5s[md5]
-                self._attachments.discard(obj)
-            self._deleted_objects.add(obj)
+    def _remove(self, obj):
+        """ Removes an object from all containers obj._remove is responsible for removing the relations
+        """
+        self._dirty_objects.discard(obj)
+        if (isinstance(obj, ZoteroCollection)):
+            self._collections.discard(obj)
+        elif (isinstance(obj, ZoteroDocument)):
+            key = self.build_name_key(obj.title)
+            if (key in self._documents_by_name):
+                self._documents_by_name[key].discard(obj)
+            self._documents.discard(obj)
+        elif (isinstance(obj, ZoteroAttachment)):
+            md5 = obj.md5
+            if (md5 in self._attachments_by_md5s):
+                del self._attachments_by_md5s[md5]
+            self._attachments.discard(obj)
+
+    def _mark_for_deletion(self, obj):
+        self._deleted_objects.add(obj)
 
     def new_key(self):
         newkey = ""
@@ -239,9 +273,48 @@ class ZoteroLibrary(object):
         else:
             return None
 
+    def _recieve_item(self, dict):
+        """Called on any item recieved from self._server
+        """
+        try:
+            key = dict['data']['key']
+            if (key in self._objects_by_key):
+                self._objects_by_key[key].refresh(dict)
+            else:
+                ZoteroItem.factory(dict)
+        except KeyError as e:
+            raise InvalidData(dict) from e
+
+    def _recieve_collection(self, dict):
+        """Called on any item recieved from self._server
+        """
+        try:
+            key = dict['data']['key']
+            if (key in self._objects_by_key):
+                self._objects_by_key[key].refresh(dict)
+            else:
+                ZoteroCollection.factory(dict)
+        except KeyError as e:
+            raise InvalidData(dict) from e
+
+    def _get_items(self, **kwargs):
+        """Get all items satisfying kwargs from self._server and update/record them
+        """
+        for items in self._server.makeiter(self._server.items(**kwargs)):
+            for i in items:
+                self._recieve_item(i)
+
+    def _get_collections(self, **kwargs):
+        """Get all items satisfying kwargs from self._server and update/record them
+        """
+        for items in self._server.makeiter(self._server.collections(**kwargs)):
+            for i in items:
+                self._recieve_collection(i)
+
     def _register_obj(self, obj):
-        if (obj.key not in self._objects_by_key):
-            self._objects_by_key[obj.key] = obj
+        self._objects_by_key[obj.key] = obj
+
+    def # figure out what order deletion will happen in so whether we remove to be deleted objects from collections
 
     def _register_collection(self, obj):
         self._collections.add(obj)
@@ -457,7 +530,16 @@ class ZoteroObject(object):
 
     def delete(self):
         self._deleted = True
-        self._library.mark_for_deletion(self)
+        self._library._mark_for_deletion(self)
+        self._remove()
+
+    def _remove(self):
+        """removes object from the library.  Responsible for taking out of all containers and relations.
+        """
+        self._library._remove(self)
+        self._library._register_parent(self, None)  # remove from any children collections
+        for c in self._children:
+            c.parent = None
 
     @property
     def version(self):
@@ -640,6 +722,13 @@ class ZoteroItem(ZoteroObject):
         yield "dateModified"
         yield from (p for p in super().properties() if (p != "dateModified" and p != "itemType" and p != "linkMode"))
 
+    def _remove(self):
+        super()._remove()
+        for c in self.collections:
+            self._library._register_outof_collection(self, c)
+        for t in self.tags:
+            self._library._register_outof_tag(self, t)
+
     @property
     def dirty(self):
         return self._dirty
@@ -665,13 +754,31 @@ class ZoteroItem(ZoteroObject):
             self._library._register_outof_collection(self, c)
         for c in val.difference(self._collections):
             self._library._register_into_collection(self, c)
-        newcols = set()
+        newcols = list()
         for c in val:
             if (isinstance(c, ZoteroCollection)):
-                newcols.add(c.key)
+                newcols.append(c.key)
             else:
-                newcols.add(c)
+                newcols.append(c)
         self._set_property("collections", newcols)
+
+    def remove_from_collection(self, col):
+        if (isinstance("col"), str):
+            col = self._library.get_obj_by_key(col)
+        if (col in self.collections):
+            self._set_property("collections", [c.key for c in self.collections if c != col])
+        self._library._register_outof_collection(self, col)
+
+    def add_to_collection(self, col):
+        if (isinstance("col"), str):
+            ckey = col
+            col = self._library.get_obj_by_key(col)
+        else:
+            ckey = col.key
+        if (col not in self.collections):
+            newcols = [c.key for c in self.collections]
+            newcols.append(ckey)
+            self._library._register_into_collection(self, col)
 
     @property
     def tags(self):
@@ -687,6 +794,14 @@ class ZoteroItem(ZoteroObject):
         for c in val.difference(self.tags):
             self._library._register_into_tag(self, c)
         self._set_property("tags", [dict(tag=t) for t in val])
+
+    def add_tag(self, tag):
+        if (tag not in self.tags):
+            self.tags = self.tags.add(tag)
+
+    def remove_tag(self, tag):
+        if (tag in self.tags):
+            self.tags = self.tags.discard(tag)
 
     @property
     def relations(self):
@@ -856,6 +971,11 @@ class ZoteroCollection(ZoteroObject):
         self.members = set()
         super().__init__(library, arg)
         self._library._register_collection(self)
+
+    def _remove(self):
+        for i in self.members:
+            i.remove_from_collection(self)
+        super()._remove()
 
 
 # try:

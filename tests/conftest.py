@@ -13,4 +13,4 @@ def zoterolocal():
 
 @pytest.fixture
 def zoteroremote():
-    return zoterosync.ZoteroLibrary(3661336, "NnfdXD5dmXkCJcGUBDgJTEV9")
+    return zoterosync.ZoteroLibrary.factory(3661336, "NnfdXD5dmXkCJcGUBDgJTEV9")
