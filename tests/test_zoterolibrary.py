@@ -454,3 +454,10 @@ def test_fifty_keys_from_set(zoterolocal):
     assert key_thirty[-1] != ","
     assert key_fifty[-1] != ","
     assert key_sixty[-1] != ","
+
+
+def test_mock_working(zoteromock):
+    lib = zoteromock
+    lib._queue_refresh()
+    assert len(lib._itemkeys_for_refresh) == 5
+    assert len(lib._collkeys_for_refresh) == 20

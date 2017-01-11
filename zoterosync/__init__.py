@@ -207,7 +207,7 @@ class ZoteroLibrary(object):
         self._revert = False
 
     def _queue_refresh(self):  # fix to use functions I added to pyzotero when out
-        params = dict(limit=-1, format='versions')
+        params = dict()
         if (self._version is not None):
             params['since'] = self._version
             deleted = self._server.deleted(**params)
@@ -216,18 +216,18 @@ class ZoteroLibrary(object):
                     obj = self._objects_by_key[key]
                     obj._remove()
                     self._deleted_objects.discard(obj)
-        item_vers = self._server.items(**params)
+        item_vers = self._server.item_versions(**params)
         self._next_version = int(self._server.request.headers.get('last-modified-version', 0))
         for key in item_vers:
             if (key not in self._objects_by_key or self._objects_by_key[key].version < item_vers[key]):
                 self._itemkeys_for_refresh.add(key)
-        coll_vers = self._server.collections(**params)
+        coll_vers = self._server.collection_versions(**params)
         for key in coll_vers:
             if (key not in self._objects_by_key or self._objects_by_key[key].version < coll_vers[key]):
                 self._collkeys_for_refresh.add(key)
 
     def _refresh_queued(self):
-        self._refresh_queued_colls()
+        self._refresh_queued_collections()
         self._refresh_queued_items()
         if (len(self._collkeys_for_refresh) == 0 and len(self._itemkeys_for_refresh) == 0):
             if (self._next_version is not None):
@@ -253,7 +253,7 @@ class ZoteroLibrary(object):
             for i in newitems:
                 self._recieve_item(i)
 
-    def _refresh_queued_colls(self):
+    def _refresh_queued_collections(self):
         keys = self._collkeys_for_refresh.copy()
         for key in keys:
                 self._recieve_collection(self._server.collection(key))
