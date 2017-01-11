@@ -432,3 +432,25 @@ def test_factory_collection(zoterolocal):
 def test_factory_collection_from_collection(zoterolocal):
     zobj = zoterosync.ZoteroCollection.factory(zoterolocal, coll_simp)
     assert isinstance(zobj, zoterosync.ZoteroCollection)
+
+
+def test_fifty_keys_from_set(zoterolocal):
+    lib = zoterolocal
+    set_thirty = set()
+    set_fifty = set()
+    set_sixty = set()
+    for i in range(30):
+        set_thirty.add(str(i))
+    for i in range(50):
+        set_fifty.add(str(i))
+    for i in range(60):
+        set_sixty.add(str(i))
+    key_thirty = lib._fifty_keys_from_set(set_thirty)
+    assert len(key_thirty.split(',')) == 30
+    key_fifty = lib._fifty_keys_from_set(set_fifty)
+    assert len(key_fifty.split(',')) == 50
+    key_sixty = lib._fifty_keys_from_set(set_sixty)
+    assert len(key_sixty.split(',')) == 50
+    assert key_thirty[-1] != ","
+    assert key_fifty[-1] != ","
+    assert key_sixty[-1] != ","

@@ -6,6 +6,7 @@ import logging
 import pickle
 import datetime
 import dateutil.parser
+import collections
 from functools import wraps
 
 # create logger
@@ -35,6 +36,7 @@ logger.addHandler(ch)
 # we can print each item's item type and ID
 # for item in items:
 # print('Item: {0} | Key: {1}'.format(item['data']['itemType'], item['data']['key']))
+
 
 def subclassfactory(fact_method):
     """fact_method takes the same args as init and returns the subclass appropriate to those args
@@ -204,7 +206,7 @@ class ZoteroLibrary(object):
         self.abort = False
         self._revert = False
 
-    def _queue_refresh(self):
+    def _queue_refresh(self):  # fix to use functions I added to pyzotero when out
         params = dict(limit=-1, format='versions')
         if (self._version is not None):
             params['since'] = self._version
@@ -239,7 +241,7 @@ class ZoteroLibrary(object):
         for key in set:
             idstring = idstring + key
             num = num + 1
-            if (num >= 49):
+            if (num >= 50):
                 return idstring
             else:
                 idstring = idstring + ","

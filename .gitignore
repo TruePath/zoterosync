@@ -3,3 +3,4 @@ zoterosync.egg-info
 .DS_Store
 zoterosync.sublime-project
 zoterosync.sublime-workspace
+secrets.txt
