@@ -13,6 +13,7 @@ def zdocsimp(zoterolocal):
 def zdocsimp_keyonly(zoterolocal):
     return zoterosync.ZoteroDocument(zoterolocal, '52JRNN9E')
 
+
 @pytest.fixture
 def zdoc_collections(zoterolocal):
     doc_col = copy.deepcopy(docsimp)
@@ -456,8 +457,38 @@ def test_fifty_keys_from_set(zoterolocal):
     assert key_sixty[-1] != ","
 
 
-def test_mock_working(zoteromock):
-    lib = zoteromock
-    lib._queue_refresh()
+def test_mock_small(zoteromock_small):
+    lib = zoteromock_small
+    lib._queue_pull()
     assert len(lib._itemkeys_for_refresh) == 5
     assert len(lib._collkeys_for_refresh) == 20
+    lib._process_pull()
+    assert len(lib._itemkeys_for_refresh) == 0
+    assert len(lib._collkeys_for_refresh) == 0
+    assert lib.num_items == 5
+    assert lib.num_collections == 20
+    assert int(lib._server.request.headers.get('last-modified-version', 0)) == 4030
+    assert lib._version == 4030
+
+
+def test_mock_delete(mock_small, zoteromock_small):
+    lib = zoteromock_small
+    lib.pull()
+    mock_small.version = 5050
+    lib._queue_pull()  # deletes after 4030 are pulled now
+    assert len(lib._itemkeys_for_refresh) == 0
+    assert len(lib._collkeys_for_refresh) == 0
+    assert lib.num_items == 3
+    assert lib.num_collections == 20
+    lib._process_pull()
+    assert lib._version == 5050
+    mock_small.version = 6050
+    lib.pull()
+    assert lib.num_items == 3
+    assert lib.num_collections == 19
+    assert len(lib.get_obj_by_key('C776Z4WN').collections) == 0
+    assert lib.get_obj_by_key('C776Z4WN').dirty is False
+
+
+def test_mock_large(zoteromock):
+    lib = zoteromock

@@ -86,6 +86,7 @@ class InvalidProperty(ZoteroLibraryError):
     """
     pass
 
+
 class EarlyExit(Exception):
     """ Exception raised to exit from code in case of early exit (like SIGINT)
     """
@@ -206,7 +207,14 @@ class ZoteroLibrary(object):
         self.abort = False
         self._revert = False
 
-    def _queue_refresh(self):  # fix to use functions I added to pyzotero when out
+    def _early_abort(self):
+        """If abort flag is set raises EarlyExit
+        """
+        if (self.abort):
+            self.abort = False
+            raise EarlyExit(self._revert)
+
+    def _queue_pull(self):  # fix to use functions I added to pyzotero when out
         params = dict()
         if (self._version is not None):
             params['since'] = self._version
@@ -214,7 +222,7 @@ class ZoteroLibrary(object):
             for key in (i for k in deleted if (k == "items" or k == "collections") for i in deleted[k]):
                 if (key in self._objects_by_key):
                     obj = self._objects_by_key[key]
-                    obj._remove()
+                    obj._remove(refresh=True)
                     self._deleted_objects.discard(obj)
         item_vers = self._server.item_versions(**params)
         self._next_version = int(self._server.request.headers.get('last-modified-version', 0))
@@ -226,13 +234,17 @@ class ZoteroLibrary(object):
             if (key not in self._objects_by_key or self._objects_by_key[key].version < coll_vers[key]):
                 self._collkeys_for_refresh.add(key)
 
-    def _refresh_queued(self):
+    def _process_pull(self):
         self._refresh_queued_collections()
         self._refresh_queued_items()
         if (len(self._collkeys_for_refresh) == 0 and len(self._itemkeys_for_refresh) == 0):
             if (self._next_version is not None):
                 self._version = self._next_version
                 self._next_version = None
+
+    def pull(self):
+        self._queue_pull()
+        self._process_pull()
 
     @staticmethod
     def _fifty_keys_from_set(set):
@@ -252,11 +264,13 @@ class ZoteroLibrary(object):
             newitems = self._server.items(itemKeys=self._fifty_keys_from_set(self._itemkeys_for_refresh))
             for i in newitems:
                 self._recieve_item(i)
+            self._early_abort()
 
     def _refresh_queued_collections(self):
         keys = self._collkeys_for_refresh.copy()
         for key in keys:
                 self._recieve_collection(self._server.collection(key))
+                self._early_abort()
 
     def _update_item_types(self):
         self.item_types = [d["itemType"] for d in self._server.item_types()]
@@ -297,7 +311,7 @@ class ZoteroLibrary(object):
 
     @staticmethod
     def build_name_key(string):
-        return re.sub('[\s-_\+:~*&()]', '', string.lower())
+        return re.sub('\s|[-_+:~*&()]', '', string.lower())
 
     def get_obj_by_key(self, key):
         if (key in self._objects_by_key):
@@ -313,7 +327,7 @@ class ZoteroLibrary(object):
             if (key in self._objects_by_key):
                 self._objects_by_key[key].refresh(dict)
             else:
-                ZoteroItem.factory(dict)
+                ZoteroItem.factory(self, dict)
             self._itemkeys_for_refresh.discard(key)
         except KeyError as e:
             raise InvalidData(dict) from e
@@ -326,7 +340,7 @@ class ZoteroLibrary(object):
             if (key in self._objects_by_key):
                 self._objects_by_key[key].refresh(dict)
             else:
-                ZoteroCollection.factory(dict)
+                ZoteroCollection.factory(self, dict)
             self._collkeys_for_refresh.discard(key)
         except KeyError as e:
             raise InvalidData(dict) from e
@@ -412,6 +426,22 @@ class ZoteroLibrary(object):
             if (len(self._tags[tag]) == 0):
                 del self._tags[tag]
 
+    @property
+    def num_docs(self):
+        return len(self._documents)
+
+    @property
+    def num_collections(self):
+        return len(self._collections)
+
+    @property
+    def num_attachments(self):
+        return len(self._attachments)
+
+    @property
+    def num_items(self):
+        return self.num_docs + self.num_attachments
+
 
 class ZoteroObject(object):
 
@@ -472,7 +502,10 @@ class ZoteroObject(object):
         logger.debug("called _register_property in ZoteroObject with pkey=%s and pval=%s", pkey, pval)
         if (isinstance(pval, ZoteroObject)):
             pval = pval.key
-        self._data[pkey] = pval
+        if (pval is None):
+            del self._data[pkey]
+        else:
+            self._data[pkey] = pval
         if (pkey == self._parent_key):
             self._register_parent(pval)
 
@@ -565,15 +598,19 @@ class ZoteroObject(object):
         self._remove()
         self._deleted = True
 
-    def _remove(self):
+    def _remove(self, refresh=False):
         """removes object from the library.  Responsible for taking out of all containers and relations.
         """
         if self.deleted:
             return
         self._library._remove(self)
         self._library._register_parent(self, None)  # remove from any children collections
-        for c in self._children:
-            c.parent = None
+        if (refresh):
+            for c in self._children.copy():
+                c._refresh_property(c._parent_key, None)
+        else:
+            for c in self._children.copy():
+                c.parent = None
 
     @property
     def version(self):
@@ -756,10 +793,10 @@ class ZoteroItem(ZoteroObject):
         yield "dateModified"
         yield from (p for p in super().properties() if (p != "dateModified" and p != "itemType" and p != "linkMode"))
 
-    def _remove(self):
+    def _remove(self, refresh=False):
         if self.deleted:
             return
-        super()._remove()
+        super()._remove(refresh=refresh)
         for c in self.collections:
             self._library._register_outof_collection(self, c)
         for t in self.tags:
@@ -798,15 +835,18 @@ class ZoteroItem(ZoteroObject):
                 newcols.append(c)
         self._set_property("collections", newcols)
 
-    def remove_from_collection(self, col):
-        if (isinstance("col"), str):
+    def remove_from_collection(self, col, refresh=False):
+        if (isinstance(col, str)):
             col = self._library.get_obj_by_key(col)
         if (col in self.collections):
-            self._set_property("collections", [c.key for c in self.collections if c != col])
+            if (refresh):
+                self._refresh_property("collections", [c.key for c in self.collections if c != col])
+            else:
+                self._set_property("collections", [c.key for c in self.collections if c != col])
         self._library._register_outof_collection(self, col)
 
     def add_to_collection(self, col):
-        if (isinstance("col"), str):
+        if (isinstance(col, str)):
             ckey = col
             col = self._library.get_obj_by_key(col)
         else:
@@ -1008,12 +1048,12 @@ class ZoteroCollection(ZoteroObject):
         super().__init__(library, arg)
         self._library._register_collection(self)
 
-    def _remove(self):
+    def _remove(self, refresh=False):
         if self.deleted:
             return
-        for i in self.members:
-            i.remove_from_collection(self)
-        super()._remove()
+        for i in self.members.copy():
+            i.remove_from_collection(self, refresh=refresh)
+        super()._remove(refresh=refresh)
 
 
 # try:

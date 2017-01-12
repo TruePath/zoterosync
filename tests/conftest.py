@@ -119,8 +119,8 @@ class MockPyzotero(object):
     def deleted(self, since=None, **kwargs):
         if (since is None):
             raise Exception("can't call without a since argument")
-        item_dels = [k for k in self._item_deletions if (self._item_deletions[k] > since)]
-        coll_dels = [k for k in self._collection_deletions if (self._collection_deletions[k] > since)]
+        item_dels = [k for k in self._item_deletions if (self.version >= self._item_deletions[k] > since)]
+        coll_dels = [k for k in self._collection_deletions if (self.version >= self._collection_deletions[k] > since)]
         return dict(collections=coll_dels, items=item_dels, searches=[], tags=[], settings=[])
 
     def item_types(self):
@@ -144,16 +144,28 @@ def zoterolocal():
 
 
 @pytest.fixture
+def mock_small():
+    mock = MockPyzotero(doc_data, collection_data)
+    mock._delete_items(["52JRNN9E", "6NGR6H7E", "BSKEY"], 5000)
+    mock._delete_collections(["2QWF3CPM", "BSKEY"], 6000)
+    return mock
+
+
+@pytest.fixture
+def zoteromock_small(mock_small):
+    return zoterosync.ZoteroLibrary(mock_small)
+
+
+@pytest.fixture
 def zoteromock():
     mock = MockPyzotero(item_data, collection_data)
-    mock._delete_items(["52JRNN9E", "6NGR6H7E"], 200)
-    mock._delete_items(["C776Z4WN", "BSKEY"], 4000)
     return zoterosync.ZoteroLibrary(mock)
 
 
 @pytest.fixture
 def zoteroremote():
     return zoterosync.ZoteroLibrary.factory(475425, "")
+
 
 @pytest.fixture
 def zotero_write_remote():
@@ -163,22 +175,6 @@ def zotero_write_remote():
 
 
 doc_data = [{
-    'version': 4024,
-    'library': {
-        'links': {'alternate': {'type': 'text/html',
-                  'href': 'https://www.zotero.org/peter_gerdes'}},
-        'name': 'Peter Gerdes',
-        'type': 'user',
-        'id': 3661336,
-        },
-    'meta': {'creatorSummary': 'Chakrabarti and Banerjee',
-             'parsedDate': '2001', 'numChildren': 5},
-    'key': '52JRNN9E',
-    'links': {'alternate': {'type': 'text/html',
-              'href': 'https://www.zotero.org/peter_gerdes/items/52JRNN9E'
-              }, 'self': {'type': 'application/json',
-              'href': 'https://api.zotero.org/users/3661336/items/52JRNN9E'
-              }},
     'data': {
         'proceedingsTitle': 'Proceedings of the 15th international conference on Supercomputing'
             ,
@@ -224,22 +220,6 @@ doc_data = [{
         'pages': '166-180',
         },
     }, {
-    'version': 4023,
-    'library': {
-        'links': {'alternate': {'type': 'text/html',
-                  'href': 'https://www.zotero.org/peter_gerdes'}},
-        'name': 'Peter Gerdes',
-        'type': 'user',
-        'id': 3661336,
-        },
-    'meta': {'creatorSummary': 'Cate and Gross', 'parsedDate': '1991-04'
-             , 'numChildren': 0},
-    'key': '6NGR6H7E',
-    'links': {'alternate': {'type': 'text/html',
-              'href': 'https://www.zotero.org/peter_gerdes/items/6NGR6H7E'
-              }, 'self': {'type': 'application/json',
-              'href': 'https://api.zotero.org/users/3661336/items/6NGR6H7E'
-              }},
     'data': {
         'proceedingsTitle': 'Proceedings of the Fourth International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS-IV)'
             ,
@@ -282,21 +262,6 @@ doc_data = [{
         'pages': '',
         },
     }, {
-    'version': 4023,
-    'library': {
-        'links': {'alternate': {'type': 'text/html',
-                  'href': 'https://www.zotero.org/peter_gerdes'}},
-        'name': 'Peter Gerdes',
-        'type': 'user',
-        'id': 3661336,
-        },
-    'meta': {'creatorSummary': 'Cartwright et al.', 'numChildren': 5},
-    'key': 'C776Z4WN',
-    'links': {'alternate': {'type': 'text/html',
-              'href': 'https://www.zotero.org/peter_gerdes/items/C776Z4WN'
-              }, 'self': {'type': 'application/json',
-              'href': 'https://api.zotero.org/users/3661336/items/C776Z4WN'
-              }},
     'data': {
         'volume': '',
         'collections': ['2QWF3CPM'],
@@ -345,22 +310,6 @@ doc_data = [{
         'series': '',
         },
     }, {
-    'version': 4023,
-    'library': {
-        'links': {'alternate': {'type': 'text/html',
-                  'href': 'https://www.zotero.org/peter_gerdes'}},
-        'name': 'Peter Gerdes',
-        'type': 'user',
-        'id': 3661336,
-        },
-    'meta': {'creatorSummary': 'Cartwright and Felleisen',
-             'parsedDate': '1989', 'numChildren': 5},
-    'key': 'B2ZDK8C2',
-    'links': {'alternate': {'type': 'text/html',
-              'href': 'https://www.zotero.org/peter_gerdes/items/B2ZDK8C2'
-              }, 'self': {'type': 'application/json',
-              'href': 'https://api.zotero.org/users/3661336/items/B2ZDK8C2'
-              }},
     'data': {
         'volume': '24',
         'collections': ['2QWF3CPM'],
@@ -407,327 +356,6 @@ doc_data = [{
         'series': '',
         },
     }, {
-    'version': 4023,
-    'library': {
-        'links': {'alternate': {'type': 'text/html',
-                  'href': 'https://www.zotero.org/peter_gerdes'}},
-        'name': 'Peter Gerdes',
-        'type': 'user',
-        'id': 3661336,
-        },
-    'meta': {'creatorSummary': 'Carson and Setia', 'parsedDate': '1994'
-             , 'numChildren': 0},
-    'key': 'S8FM6JAD',
-    'links': {'alternate': {'type': 'text/html',
-              'href': 'https://www.zotero.org/peter_gerdes/items/S8FM6JAD'
-              }, 'self': {'type': 'application/json',
-              'href': 'https://api.zotero.org/users/3661336/items/S8FM6JAD'
-              }},
-    'data': {
-        'volume': '7',
-        'collections': ['2QWF3CPM'],
-        'seriesTitle': '',
-        'extra': '',
-        'key': 'S8FM6JAD',
-        'tags': [{'tag': 'LFS'}],
-        'itemType': 'journalArticle',
-        'title': 'Optimal Write Batch Size in Log-Structured File Systems'
-            ,
-        'url': '',
-        'version': 4023,
-        'abstractNote': '',
-        'pages': '263-281',
-        'language': '',
-        'journalAbbreviation': '',
-        'ISSN': '',
-        'publicationTitle': 'csys',
-        'shortTitle': '',
-        'libraryCatalog': '',
-        'DOI': '',
-        'creators': [{'creatorType': 'author', 'firstName': 'S.',
-                     'lastName': 'Carson'}, {'creatorType': 'author',
-                     'firstName': 'S.', 'lastName': 'Setia'}],
-        'archiveLocation': '',
-        'relations': {'dc:replaces': ['http://zotero.org/users/3661336/items/UA3WTQN8'
-                      , 'http://zotero.org/users/3661336/items/XHQ2NSR8'
-                      , 'http://zotero.org/users/3661336/items/H7DG5RDW'
-                      , 'http://zotero.org/users/3661336/items/T5ZT9CG8'
-                      , 'http://zotero.org/users/3661336/items/QFFS3ME7'
-                      ]},
-        'issue': '2',
-        'seriesText': '',
-        'accessDate': '',
-        'dateModified': '2016-12-24T02:53:31Z',
-        'date': '1994',
-        'dateAdded': '2013-12-25T01:42:43Z',
-        'callNumber': '',
-        'rights': '',
-        'archive': '',
-        'series': '',
-        },
-    }]
-
-item_data = [{
-    'version': 4024,
-    'library': {
-        'links': {'alternate': {'type': 'text/html',
-                  'href': 'https://www.zotero.org/peter_gerdes'}},
-        'name': 'Peter Gerdes',
-        'type': 'user',
-        'id': 3661336,
-        },
-    'meta': {'creatorSummary': 'Chakrabarti and Banerjee',
-             'parsedDate': '2001', 'numChildren': 5},
-    'key': '52JRNN9E',
-    'links': {'alternate': {'type': 'text/html',
-              'href': 'https://www.zotero.org/peter_gerdes/items/52JRNN9E'
-              }, 'self': {'type': 'application/json',
-              'href': 'https://api.zotero.org/users/3661336/items/52JRNN9E'
-              }},
-    'data': {
-        'proceedingsTitle': 'Proceedings of the 15th international conference on Supercomputing'
-            ,
-        'collections': ['2QWF3CPM'],
-        'relations': {'dc:replaces': ['http://zotero.org/users/3661336/items/DBQFTAHP'
-                      , 'http://zotero.org/users/3661336/items/C6IAXB94'
-                      , 'http://zotero.org/users/3661336/items/VEIX2QFM'
-                      , 'http://zotero.org/users/3661336/items/DQMM2KFD'
-                      , 'http://zotero.org/users/3661336/items/HS74N2BJ'
-                      ]},
-        'extra': '',
-        'volume': '',
-        'key': '52JRNN9E',
-        'tags': [{'tag': 'parallel'}],
-        'itemType': 'conferencePaper',
-        'title': 'Global optimization techniques for automatic parallelization of hybrid applications'
-            ,
-        'url': '',
-        'version': 4024,
-        'abstractNote': 'This paper presents a novel technique to perform global optimization of communication and preprocessing calls in the presence of array accesses with arbitrary subscripts. Our scheme is presented in the context of automatic parallelization of sequential programs to produce message passing programs for execution on distributed machines. We use the static single assignment (SSA) form for message passing programs as the intermediate representation and then present techniques to perform global optimizations even in the presence of array accesses with arbitrary subscripts. The focus of this paper is in showing that, using a uniform compilation method both at compile-time and at run-time, our framework is able to determine the earliest and the latest legal communication point for a certain distributed array reference even in the presence of arbitrary array addressing functions. Our scheme then heuristically determines the final communication point after considering the interaction between the relevant communication schedules. Owing to combined static and dynamic analysis, a quasi-dynamic method of code generation is implemented. We describe the need for proper interaction between the compiler and the run-time routines for efficient implementation of optimizations as well as for compatible code generation. All of the analyses is initiated at compile-time, static analyses of the program is done as much as possible, and then the run-time routines take over the analyses while building on the data structures initiated at compile time. This scheme has been incorporated in our compiler framework which can use uniform methods to compile, parallelize, and optimize a sequential program irrespective of the subscripts used in array addressing functions. Experimental results for a number of benchmarks on an IBM SP-2 show up to around 10-25% reduction in total run-times in our globally-optimized schemes compared to other state-of-the-art schemes on 16 processors.'
-            ,
-        'series': '',
-        'language': '',
-        'libraryCatalog': '',
-        'rights': '',
-        'shortTitle': '',
-        'ISBN': '1-58113-410-X',
-        'DOI': '',
-        'creators': [{'creatorType': 'author', 'firstName': 'Dhruva R.'
-                     , 'lastName': 'Chakrabarti'},
-                     {'creatorType': 'author', 'firstName': 'Prithviraj'
-                     , 'lastName': 'Banerjee'}],
-        'archiveLocation': '',
-        'conferenceName': '',
-        'accessDate': '',
-        'dateModified': '2016-12-24T02:55:29Z',
-        'date': '2001',
-        'dateAdded': '2013-12-25T01:42:47Z',
-        'callNumber': '',
-        'publisher': 'ACM',
-        'archive': '',
-        'place': 'Sorrento, Italy',
-        'pages': '166-180',
-        },
-    }, {
-    'version': 4023,
-    'library': {
-        'links': {'alternate': {'type': 'text/html',
-                  'href': 'https://www.zotero.org/peter_gerdes'}},
-        'name': 'Peter Gerdes',
-        'type': 'user',
-        'id': 3661336,
-        },
-    'meta': {'creatorSummary': 'Cate and Gross', 'parsedDate': '1991-04'
-             , 'numChildren': 0},
-    'key': '6NGR6H7E',
-    'links': {'alternate': {'type': 'text/html',
-              'href': 'https://www.zotero.org/peter_gerdes/items/6NGR6H7E'
-              }, 'self': {'type': 'application/json',
-              'href': 'https://api.zotero.org/users/3661336/items/6NGR6H7E'
-              }},
-    'data': {
-        'proceedingsTitle': 'Proceedings of the Fourth International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS-IV)'
-            ,
-        'collections': ['2QWF3CPM'],
-        'relations': {'dc:replaces': ['http://zotero.org/users/3661336/items/RMAPXKX5'
-                      , 'http://zotero.org/users/3661336/items/V56X68NG'
-                      , 'http://zotero.org/users/3661336/items/MWTCKZGR'
-                      , 'http://zotero.org/users/3661336/items/93QMAZC6'
-                      ]},
-        'extra': '',
-        'volume': '',
-        'key': '6NGR6H7E',
-        'tags': [{'tag': 'Caching'}, {'tag': 'compression'}],
-        'itemType': 'conferencePaper',
-        'title': 'Combining the Concepts of Compression and Caching for a Two-Level Filesystem'
-            ,
-        'url': '',
-        'version': 4023,
-        'abstractNote': '',
-        'series': '',
-        'language': '',
-        'libraryCatalog': '',
-        'rights': '',
-        'shortTitle': '',
-        'ISBN': '',
-        'DOI': '',
-        'creators': [{'creatorType': 'author', 'firstName': 'V.',
-                     'lastName': 'Cate'}, {'creatorType': 'author',
-                     'firstName': 'T.', 'lastName': 'Gross'}],
-        'archiveLocation': '',
-        'conferenceName': '',
-        'accessDate': '',
-        'dateModified': '2016-12-24T02:53:53Z',
-        'date': 'April 1991',
-        'dateAdded': '2013-12-25T01:43:24Z',
-        'callNumber': '',
-        'publisher': '',
-        'archive': '',
-        'place': 'Santa Clara, CA, USA',
-        'pages': '',
-        },
-    }, {
-    'version': 4023,
-    'library': {
-        'links': {'alternate': {'type': 'text/html',
-                  'href': 'https://www.zotero.org/peter_gerdes'}},
-        'name': 'Peter Gerdes',
-        'type': 'user',
-        'id': 3661336,
-        },
-    'meta': {'creatorSummary': 'Cartwright et al.', 'numChildren': 5},
-    'key': 'C776Z4WN',
-    'links': {'alternate': {'type': 'text/html',
-              'href': 'https://www.zotero.org/peter_gerdes/items/C776Z4WN'
-              }, 'self': {'type': 'application/json',
-              'href': 'https://api.zotero.org/users/3661336/items/C776Z4WN'
-              }},
-    'data': {
-        'volume': '',
-        'collections': ['2QWF3CPM'],
-        'seriesTitle': '',
-        'extra': '',
-        'key': 'C776Z4WN',
-        'tags': [{'tag': 'Mixins'}, {'tag': 'Modules'}, {'tag': 'units'
-                 }],
-        'itemType': 'journalArticle',
-        'title': 'Reusable Software Components',
-        'url': '',
-        'version': 4023,
-        'abstractNote': '',
-        'pages': '',
-        'language': '',
-        'journalAbbreviation': '',
-        'ISSN': '',
-        'publicationTitle': '',
-        'shortTitle': '',
-        'libraryCatalog': '',
-        'DOI': '10.1.1.17.3212',
-        'creators': [{'creatorType': 'author', 'firstName': 'Robert S',
-                     'lastName': 'Cartwright'}, {'creatorType': 'author'
-                     , 'firstName': 'Keith D', 'lastName': 'Cooper'},
-                     {'creatorType': 'author', 'firstName': 'David M',
-                     'lastName': 'Lane'}, {'creatorType': 'author',
-                     'firstName': 'Matthew', 'lastName': 'Flatt'},
-                     {'creatorType': 'author', 'firstName': 'Matthew',
-                     'lastName': 'Flatt'}],
-        'archiveLocation': '',
-        'relations': {'dc:replaces': ['http://zotero.org/users/3661336/items/I97X2PJP'
-                      , 'http://zotero.org/users/3661336/items/FD9QGA45'
-                      , 'http://zotero.org/users/3661336/items/NAIHFD2Z'
-                      , 'http://zotero.org/users/3661336/items/CU29HTVK'
-                      , 'http://zotero.org/users/3661336/items/B4ZQ33SS'
-                      ]},
-        'issue': '',
-        'seriesText': '',
-        'accessDate': '',
-        'dateModified': '2016-12-24T02:53:45Z',
-        'date': '',
-        'dateAdded': '2013-12-25T01:43:39Z',
-        'callNumber': '',
-        'rights': '',
-        'archive': '',
-        'series': '',
-        },
-    }, {
-    'version': 4023,
-    'library': {
-        'links': {'alternate': {'type': 'text/html',
-                  'href': 'https://www.zotero.org/peter_gerdes'}},
-        'name': 'Peter Gerdes',
-        'type': 'user',
-        'id': 3661336,
-        },
-    'meta': {'creatorSummary': 'Cartwright and Felleisen',
-             'parsedDate': '1989', 'numChildren': 5},
-    'key': 'B2ZDK8C2',
-    'links': {'alternate': {'type': 'text/html',
-              'href': 'https://www.zotero.org/peter_gerdes/items/B2ZDK8C2'
-              }, 'self': {'type': 'application/json',
-              'href': 'https://api.zotero.org/users/3661336/items/B2ZDK8C2'
-              }},
-    'data': {
-        'volume': '24',
-        'collections': ['2QWF3CPM'],
-        'seriesTitle': '',
-        'extra': '',
-        'key': 'B2ZDK8C2',
-        'tags': [{'tag': 'assignment'}, {'tag': 'single'},
-                 {'tag': 'static'}],
-        'itemType': 'journalArticle',
-        'title': 'The semantics of program dependence',
-        'url': 'http://portal.acm.org.ezp-prod1.hul.harvard.edu/citation.cfm?id=74820&dl=GUIDE&coll=GUIDE&CFID=95362746&CFTOKEN=85909789'
-            ,
-        'version': 4023,
-        'abstractNote': 'Optimizing and parallelizing compilers for procedural languages rely on various forms of program dependence graphs (pdgs) to express the essential control and data dependencies among atomic program operations. In this paper, we provide a semantic justification for this practice by deriving two different forms of program dependence graph - the output pdg and the def-order pdg-and their semantic definitions from non-strict generalizations of the denotational semantics of the programming language. In the process, we demonstrate that both the output pdg and the def-order pdg (with minor technical modifications) are conventional data-flow programs. In addition, we show that the semantics of the def-order pdg dominates the semantics of the output pdg and that both of these semantics dominate-rather than preserve-the semantics of sequential execution.'
-            ,
-        'pages': '13-27',
-        'language': '',
-        'journalAbbreviation': '',
-        'ISSN': '',
-        'publicationTitle': 'SIGPLAN Not.',
-        'shortTitle': '',
-        'libraryCatalog': '',
-        'DOI': '',
-        'creators': [{'creatorType': 'author', 'firstName': 'Robert',
-                     'lastName': 'Cartwright'}, {'creatorType': 'author'
-                     , 'firstName': 'Mattias', 'lastName': 'Felleisen'
-                     }],
-        'archiveLocation': '',
-        'relations': {'dc:replaces': ['http://zotero.org/users/3661336/items/VGKVCAAB'
-                      , 'http://zotero.org/users/3661336/items/5WTUXW9K'
-                      , 'http://zotero.org/users/3661336/items/H2TEBGZS'
-                      , 'http://zotero.org/users/3661336/items/ZUX5WW8K'
-                      , 'http://zotero.org/users/3661336/items/JBHR94RA'
-                      ]},
-        'issue': '7',
-        'seriesText': '',
-        'accessDate': '2010-10-17',
-        'dateModified': '2016-12-24T02:53:36Z',
-        'date': '1989',
-        'dateAdded': '2013-12-25T01:42:55Z',
-        'callNumber': '',
-        'rights': '',
-        'archive': '',
-        'series': '',
-        },
-    }, {
-    'version': 4023,
-    'library': {
-        'links': {'alternate': {'type': 'text/html',
-                  'href': 'https://www.zotero.org/peter_gerdes'}},
-        'name': 'Peter Gerdes',
-        'type': 'user',
-        'id': 3661336,
-        },
-    'meta': {'creatorSummary': 'Carson and Setia', 'parsedDate': '1994'
-             , 'numChildren': 0},
-    'key': 'S8FM6JAD',
-    'links': {'alternate': {'type': 'text/html',
-              'href': 'https://www.zotero.org/peter_gerdes/items/S8FM6JAD'
-              }, 'self': {'type': 'application/json',
-              'href': 'https://api.zotero.org/users/3661336/items/S8FM6JAD'
-              }},
     'data': {
         'volume': '7',
         'collections': ['2QWF3CPM'],
@@ -774,745 +402,169 @@ item_data = [{
 
 collection_data = [
     {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 4030,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 4030,
             'name': 'Complexity',
             'key': 'MI4MCAUA'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/MI4MCAUA'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/MI4MCAUA'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 0
-        },
-        'key': 'MI4MCAUA'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 3915,
             'name': 'Computer Science',
             'key': '2QWF3CPM'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/2QWF3CPM'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/2QWF3CPM'
-            }
-        },
-        'meta': {
-            'numCollections': 2,
-            'numItems': 8039
-        },
-        'key': '2QWF3CPM'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': '2QWF3CPM',
             'relations': {},
             'version': 3915,
             'name': 'automated theorem proving',
             'key': 'SV8225PC'
-        },
-        'links': {
-            'up': {
-                'type': 'application/atom+xml',
-                'href': 'https://api.zotero.org/users/548662/collections/2QWF3CPM'
-            },
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/SV8225PC'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/SV8225PC'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 39
-        },
-        'key': 'SV8225PC'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': '2QWF3CPM',
             'relations': {},
             'version': 3915,
             'name': 'Type Theory',
             'key': '8JSE99A6'
-        },
-        'links': {
-            'up': {
-                'type': 'application/atom+xml',
-                'href': 'https://api.zotero.org/users/548662/collections/2QWF3CPM'
-            },
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/8JSE99A6'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/8JSE99A6'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 0
-        },
-        'key': '8JSE99A6'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 3915,
             'name': 'pearltrees_export',
             'key': 'ABBIWVPH'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/ABBIWVPH'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/ABBIWVPH'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 0
-        },
-        'key': 'ABBIWVPH'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': '4DWAPJ29',
             'relations': {},
             'version': 3915,
             'name': 'Game Theory Handbook 1',
             'key': 'WRIT65X9'
-        },
-        'links': {
-            'up': {
-                'type': 'application/atom+xml',
-                'href': 'https://api.zotero.org/users/548662/collections/4DWAPJ29'
-            },
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/WRIT65X9'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/WRIT65X9'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 1
-        },
-        'key': 'WRIT65X9'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 3915,
             'name': 'Physical Books',
             'key': 'A2PNS2TG'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/A2PNS2TG'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/A2PNS2TG'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 2
-        },
-        'key': 'A2PNS2TG'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': '4DWAPJ29',
             'relations': {},
             'version': 3915,
             'name': 'Logic',
             'key': 'VMNGPV4W'
-        },
-        'links': {
-            'up': {
-                'type': 'application/atom+xml',
-                'href': 'https://api.zotero.org/users/548662/collections/4DWAPJ29'
-            },
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/VMNGPV4W'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/VMNGPV4W'
-            }
-        },
-        'meta': {
-            'numCollections': 2,
-            'numItems': 5
-        },
-        'key': 'VMNGPV4W'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 3915,
             'name': 'Econish',
             'key': 'ZZIC4VK6'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/ZZIC4VK6'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/ZZIC4VK6'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 1
-        },
-        'key': 'ZZIC4VK6'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 3915,
             'name': 'crypto',
             'key': 'SMT8V3T2'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/SMT8V3T2'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/SMT8V3T2'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 1
-        },
-        'key': 'SMT8V3T2'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 3915,
             'name': 'Math',
             'key': '4DWAPJ29'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/4DWAPJ29'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/4DWAPJ29'
-            }
-        },
-        'meta': {
-            'numCollections': 3,
-            'numItems': 15
-        },
-        'key': '4DWAPJ29'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': '4DWAPJ29',
             'relations': {},
             'version': 3915,
             'name': 'Game Theory Handbook 2',
             'key': 'QR2KPFKR'
-        },
-        'links': {
-            'up': {
-                'type': 'application/atom+xml',
-                'href': 'https://api.zotero.org/users/548662/collections/4DWAPJ29'
-            },
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/QR2KPFKR'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/QR2KPFKR'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 18
-        },
-        'key': 'QR2KPFKR'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': 'VMNGPV4W',
             'relations': {},
             'version': 3915,
             'name': 'Rec Thy',
             'key': 'CNJ8SBZT'
-        },
-        'links': {
-            'up': {
-                'type': 'application/atom+xml',
-                'href': 'https://api.zotero.org/users/548662/collections/VMNGPV4W'
-            },
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/CNJ8SBZT'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/CNJ8SBZT'
-            }
-        },
-        'meta': {
-            'numCollections': 2,
-            'numItems': 0
-        },
-        'key': 'CNJ8SBZT'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': 'CNJ8SBZT',
             'relations': {},
             'version': 3915,
             'name': 'Admissible',
             'key': '876PTIWU'
-        },
-        'links': {
-            'up': {
-                'type': 'application/atom+xml',
-                'href': 'https://api.zotero.org/users/548662/collections/CNJ8SBZT'
-            },
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/876PTIWU'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/876PTIWU'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 0
-        },
-        'key': '876PTIWU'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': 'VMNGPV4W',
             'relations': {},
             'version': 3915,
             'name': 'Complexity',
             'key': 'T4MFZUCD'
-        },
-        'links': {
-            'up': {
-                'type': 'application/atom+xml',
-                'href': 'https://api.zotero.org/users/548662/collections/VMNGPV4W'
-            },
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/T4MFZUCD'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/T4MFZUCD'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 0
-        },
-        'key': 'T4MFZUCD'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': 'CNJ8SBZT',
             'relations': {},
             'version': 3915,
             'name': 'DST',
             'key': '8KBSB7WN'
-        },
-        'links': {
-            'up': {
-                'type': 'application/atom+xml',
-                'href': 'https://api.zotero.org/users/548662/collections/CNJ8SBZT'
-            },
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/8KBSB7WN'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/8KBSB7WN'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 0
-        },
-        'key': '8KBSB7WN'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 3915,
             'name': 'Misc',
             'key': 'MBEJGTQ4'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/MBEJGTQ4'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/MBEJGTQ4'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 0
-        },
-        'key': 'MBEJGTQ4'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 3915,
             'name': 'Gender & Relationships',
             'key': 'APDSWJ3W'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/APDSWJ3W'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/APDSWJ3W'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 5
-        },
-        'key': 'APDSWJ3W'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 3915,
             'name': 'phil',
             'key': 'FRQUNR4J'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/FRQUNR4J'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/FRQUNR4J'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 1
-        },
-        'key': 'FRQUNR4J'
+        }
     }, {
-        'library': {
-            'type': 'user',
-            'links': {
-                'alternate': {
-                    'type': 'text/html',
-                    'href': 'https://www.zotero.org/peter_gerdes'
-                }
-            },
-            'id': 548662,
-            'name': 'Peter Gerdes'
-        },
-        'version': 3915,
         'data': {
             'parentCollection': False,
             'relations': {},
             'version': 3915,
             'name': 'Educ',
             'key': 'J8NTXJB8'
-        },
-        'links': {
-            'alternate': {
-                'type': 'text/html',
-                'href': 'https://www.zotero.org/peter_gerdes/collections/J8NTXJB8'
-            },
-            'self': {
-                'type': 'application/json',
-                'href': 'https://api.zotero.org/users/548662/collections/J8NTXJB8'
-            }
-        },
-        'meta': {
-            'numCollections': 0,
-            'numItems': 2
-        },
-        'key': 'J8NTXJB8'
+        }
     }
 ]
 
-item_data_more = [
+item_data = [
     {
         'version': 4024,
         'library': {
@@ -3769,3 +2821,5 @@ item_data_more = [
             },
         },
     ]
+
+assert len(item_data) == 50
