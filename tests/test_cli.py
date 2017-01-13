@@ -1,0 +1,22 @@
+import pytest
+from zoterosync import script
+import click
+from click.testing import CliRunner
+from pathlib import Path
+import json
+import os
+import zoterosync
+import pickle
+
+
+def test_cli_init():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        result = runner.invoke(script.cli, ['init', '--key=testbalh', '--user=57867'])
+        assert result.exit_code == 0
+        with Path(os.path.abspath('.zoterosync_config')).open(mode='r', encoding='utf8') as conf_file:
+            config = json.load(conf_file)
+        assert config == dict(user=57867, apikey='testbalh')
+        with Path(os.path.abspath('.zoterosync_library')).open(mode='rb') as lib_file:
+            lib = pickle.load(lib_file)
+        assert isinstance(lib, zoterosync.ZoteroLibrary)

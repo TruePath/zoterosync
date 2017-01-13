@@ -1,5 +1,5 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 
 # Utility function to read the README file.
 # Used for the long_description.  It's nice, because now 1) we have a top level
@@ -16,15 +16,20 @@ setup(name='zoterosync',
       author='Peter Gerdes',
       author_email='gerdes@invariant.org',
       license='BSD',
-      packages=['zoterosync', 'tests'],
+      packages=find_packages(),
+      # packages=['zoterosync', 'tests'],
       long_description=read('README'),
       classifiers=[
         "Development Status :: 3 - Alpha",
         'Programming Language :: Python :: 3.5',
       ],
       install_requires=[
-        'pyzotero', 'python-dateutil'
+        'Click', 'pyzotero', 'python-dateutil'
       ],
       setup_requires=['pytest-runner'],
       tests_require=['pytest'],
-      zip_safe=False)
+      zip_safe=False,
+      entry_points='''
+        [console_scripts]
+        yourscript=yourpackage.scripts.yourscript:cli
+    ''')
