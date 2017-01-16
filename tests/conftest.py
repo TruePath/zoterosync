@@ -75,12 +75,12 @@ class MockPyzotero(object):
         return {coll["data"]["key"]: coll["data"]["version"] for
                 coll in self._collections if coll["data"]["version"] > since}
 
-    def items(self, limit=50, itemkeys=None, start=1, **kwargs):
+    def items(self, limit=50, itemKey=None, start=1, **kwargs):
         start = start - 1
         if ("format" in kwargs and kwargs["format"] == 'versions'):
             return self.item_versions(**kwargs)
-        if (itemkeys is not None):
-            keys = set(itemkeys.split(','))
+        if (itemKey is not None):
+            keys = set(itemKey.split(','))
             if (not (0 < len(keys) < 51)):
                 raise Exception("Too many keys")
             items = [i for i in self._items if i["data"]["key"] in keys]
@@ -93,7 +93,7 @@ class MockPyzotero(object):
         return items
 
     def item(self, key, **kwargs):
-        items = self.items(itemKeys=key)
+        items = self.items(itemKey=key)
         if (len(items) > 0):
             return items[0]
         else:
@@ -131,6 +131,104 @@ class MockPyzotero(object):
                   "note", "patent", "podcast", "presentation", "radioBroadcast", "report", "statute",
                   "tvBroadcast", "thesis", "videoRecording", "webpage"]
         return [dict(itemType=i, localized=i) for i in itypes]
+
+    def item_fields(self):
+        ifields = ['numPages', 'numberOfVolumes', 'abstractNote', 'accessDate', 'applicationNumber',
+                   'archive', 'artworkSize', 'assignee', 'billNumber', 'blogTitle', 'bookTitle',
+                   'callNumber', 'caseName', 'code', 'codeNumber', 'codePages', 'codeVolume',
+                   'committee', 'company', 'conferenceName', 'country', 'court', 'DOI', 'date',
+                   'dateDecided', 'dateEnacted', 'dictionaryTitle', 'distributor', 'docketNumber',
+                   'documentNumber', 'edition', 'encyclopediaTitle', 'episodeNumber', 'extra',
+                   'audioFileType', 'filingDate', 'firstPage', 'audioRecordingFormat',
+                   'videoRecordingFormat', 'forumTitle', 'genre', 'history', 'ISBN', 'ISSN',
+                   'institution', 'issue', 'issueDate', 'issuingAuthority', 'journalAbbreviation',
+                   'label', 'language', 'programmingLanguage', 'legalStatus', 'legislativeBody',
+                   'libraryCatalog', 'archiveLocation', 'interviewMedium', 'artworkMedium',
+                   'meetingName', 'nameOfAct', 'network', 'pages', 'patentNumber', 'place',
+                   'postType', 'priorityNumbers', 'proceedingsTitle', 'programTitle',
+                   'publicLawNumber', 'publicationTitle', 'publisher', 'references', 'reportNumber',
+                   'reportType', 'reporter', 'reporterVolume', 'rights', 'runningTime', 'scale',
+                   'section', 'series', 'seriesNumber', 'seriesText', 'seriesTitle', 'session',
+                   'shortTitle', 'studio', 'subject', 'system', 'title', 'thesisType', 'mapType',
+                   'manuscriptType', 'letterType', 'presentationType', 'url', 'university',
+                   'versionNumber', 'volume', 'websiteTitle', 'websiteType']
+        return [dict(field=i, localized=i) for i in ifields]
+
+    def item_type_fields(itemtype):
+        item_fields = {'newspaperArticle': [ 'title', 'abstractNote', 'publicationTitle', 'place', 'edition', 'date', 'section', 'pages', 'language', 'shortTitle', 'ISSN', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'audioRecording': ['title', 'abstractNote', 'audioRecordingFormat', 'seriesTitle', 'volume', 'numberOfVolumes', 'place', 'label', 'date', 'runningTime', 'language', 'ISBN', 'shortTitle', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'url', 'accessDate', 'rights', 'extra', ],
+                       'book': ['title', 'abstractNote', 'series', 'seriesNumber', 'volume', 'numberOfVolumes', 'edition', 'place', 'publisher', 'date', 'numPages', 'language', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'interview': ['title', 'abstractNote', 'date', 'interviewMedium', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'computerProgram': ['title', 'abstractNote', 'seriesTitle', 'versionNumber', 'date', 'system', 'place', 'company', 'programmingLanguage', 'ISBN', 'shortTitle', 'url', 'rights', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'accessDate', 'extra', ],
+                       'document': ['title', 'abstractNote', 'publisher', 'date', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'blogPost': ['title', 'abstractNote', 'blogTitle', 'websiteType', 'date', 'url', 'accessDate', 'language', 'shortTitle', 'rights', 'extra', ],
+                       'artwork': ['title', 'abstractNote', 'artworkMedium', 'artworkSize', 'date', 'language', 'shortTitle', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'url', 'accessDate', 'rights', 'extra', ],
+                       'magazineArticle': ['title', 'abstractNote', 'publicationTitle', 'volume', 'issue', 'date', 'pages', 'language', 'ISSN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'thesis': ['title', 'abstractNote', 'thesisType', 'university', 'place', 'date', 'numPages', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'tvBroadcast': ['title', 'abstractNote', 'programTitle', 'episodeNumber', 'videoRecordingFormat', 'place', 'network', 'date', 'runningTime', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'videoRecording': ['title', 'abstractNote', 'videoRecordingFormat', 'seriesTitle', 'volume', 'numberOfVolumes', 'place', 'studio', 'date', 'runningTime', 'language', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'note': [],
+                       'bookSection': ['title', 'abstractNote', 'bookTitle', 'series', 'seriesNumber', 'volume', 'numberOfVolumes', 'edition', 'place', 'publisher', 'date', 'pages', 'language', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'map': ['title', 'abstractNote', 'mapType', 'scale', 'seriesTitle', 'edition', 'place', 'publisher', 'date', 'language', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'report': ['title', 'abstractNote', 'reportNumber', 'reportType', 'seriesTitle', 'place', 'institution', 'date', 'pages', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'encyclopediaArticle': ['title', 'abstractNote', 'encyclopediaTitle', 'series', 'seriesNumber', 'volume', 'numberOfVolumes', 'edition', 'place', 'publisher', 'date', 'pages', 'ISBN', 'shortTitle', 'url', 'accessDate', 'language', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'statute': ['nameOfAct', 'abstractNote', 'code', 'codeNumber', 'publicLawNumber', 'dateEnacted', 'pages', 'section', 'session', 'history', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                       'dictionaryEntry': ['title', 'abstractNote', 'dictionaryTitle', 'series', 'seriesNumber', 'volume', 'numberOfVolumes', 'edition', 'place', 'publisher', 'date', 'pages', 'language', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'conferencePaper': ['title', 'abstractNote', 'date', 'proceedingsTitle', 'conferenceName', 'place', 'publisher', 'volume', 'pages', 'series', 'language', 'DOI', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'webpage': ['title', 'abstractNote', 'websiteTitle', 'websiteType', 'date', 'shortTitle', 'url', 'accessDate', 'language', 'rights', 'extra', ],
+                       'journalArticle': ['title', 'abstractNote', 'publicationTitle', 'volume', 'issue', 'pages', 'date', 'series', 'seriesTitle', 'seriesText', 'journalAbbreviation', 'language', 'DOI', 'ISSN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'case': ['caseName', 'abstractNote', 'reporter', 'reporterVolume', 'court', 'docketNumber', 'firstPage', 'history', 'dateDecided', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                       'email': ['subject', 'abstractNote', 'date', 'shortTitle', 'url', 'accessDate', 'language', 'rights', 'extra', ],
+                       'letter': ['title', 'abstractNote', 'letterType', 'date', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'bill': ['title', 'abstractNote', 'billNumber', 'code', 'codeVolume', 'section', 'codePages', 'legislativeBody', 'session', 'history', 'date', 'language', 'url', 'accessDate', 'shortTitle', 'rights', 'extra', ],
+                       'hearing': ['title', 'abstractNote', 'committee', 'place', 'publisher', 'numberOfVolumes', 'documentNumber', 'pages', 'legislativeBody', 'session', 'history', 'date', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                       'instantMessage': ['title', 'abstractNote', 'date', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                       'radioBroadcast': ['title', 'abstractNote', 'programTitle', 'episodeNumber', 'audioRecordingFormat', 'place', 'network', 'date', 'runningTime', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'podcast': ['title', 'abstractNote', 'seriesTitle', 'episodeNumber', 'audioFileType', 'runningTime', 'url', 'accessDate', 'language', 'shortTitle', 'rights', 'extra', ],
+                       'film': ['title', 'abstractNote', 'distributor', 'date', 'genre', 'videoRecordingFormat', 'runningTime', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'patent': ['title', 'abstractNote', 'place', 'country', 'assignee', 'issuingAuthority', 'patentNumber', 'filingDate', 'pages', 'applicationNumber', 'priorityNumbers', 'issueDate', 'references', 'legalStatus', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                       'manuscript': ['title', 'abstractNote', 'manuscriptType', 'place', 'date', 'numPages', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                       'forumPost': ['title', 'abstractNote', 'forumTitle', 'postType', 'date', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                       'presentation': ['title', 'abstractNote', 'presentationType', 'date', 'place', 'meetingName', 'url', 'accessDate', 'language', 'shortTitle', 'rights', 'extra' ]}
+        return [dict(field=i, localized=i) for i in item_fields[itemtype]]
+
+    def item_creator_types(itemtype):
+        creator_types = {'newspaperArticle': ['author', 'contributor', 'reviewedAuthor','translator'],
+                                   'audioRecording': ['performer', 'composer', 'contributor', 'wordsBy'],
+                                   'book': ['author', 'contributor', 'editor', 'seriesEditor', 'translator'],
+                                   'interview': ['interviewee', 'contributor', 'interviewer', 'translator'],
+                                   'computerProgram': ['programmer', 'contributor'],
+                                   'document': ['author', 'contributor', 'editor', 'reviewedAuthor', 'translator'],
+                                   'blogPost': ['author', 'commenter', 'contributor'],
+                                   'artwork': ['artist', 'contributor'],
+                                   'magazineArticle': ['author', 'contributor', 'reviewedAuthor', 'translator'],
+                                   'thesis': ['author', 'contributor'],
+                                   'tvBroadcast': ['director', 'castMember', 'contributor', 'guest', 'producer', 'scriptwriter'],
+                                   'videoRecording': ['director', 'castMember', 'contributor', 'producer', 'scriptwriter'],
+                                   'note': [],
+                                   'bookSection': ['author', 'bookAuthor', 'contributor', 'editor', 'seriesEditor', 'translator'],
+                                   'map': ['cartographer', 'contributor', 'seriesEditor'],
+                                   'report': ['author', 'contributor', 'seriesEditor', 'translator'],
+                                   'encyclopediaArticle': ['author', 'contributor', 'editor', 'seriesEditor', 'translator'],
+                                   'statute': ['author', 'contributor'],
+                                   'dictionaryEntry': ['author', 'contributor', 'editor', 'seriesEditor', 'translator'],
+                                   'conferencePaper': ['author', 'contributor', 'editor', 'seriesEditor', 'translator'],
+                                   'webpage': ['author', 'contributor', 'translator'],
+                                   'journalArticle': ['author', 'contributor', 'editor', 'reviewedAuthor', 'translator'],
+                                   'case': ['author', 'contributor', 'counsel'],
+                                   'email': ['author', 'contributor', 'recipient'],
+                                   'letter': ['author', 'contributor', 'recipient'],
+                                   'bill': ['sponsor', 'contributor', 'cosponsor'],
+                                   'hearing': ['contributor'],
+                                   'instantMessage': ['author', 'contributor', 'recipient'],
+                                   'radioBroadcast': ['director', 'castMember', 'contributor', 'guest', 'producer', 'scriptwriter'],
+                                   'podcast': ['podcaster', 'contributor', 'guest'],
+                                   'film': ['director', 'contributor', 'producer', 'scriptwriter'],
+                                   'patent': ['inventor', 'attorneyAgent', 'contributor'],
+                                   'manuscript': ['author', 'contributor', 'translator'],
+                                   'forumPost': ['author', 'contributor'],
+                                   'presentation': ['presenter', 'contributor']}
+        return [dict(creatorType=i, localized=i) for i in creator_types[itemtype]]
 
     def makeiter(self, func):
         yield func

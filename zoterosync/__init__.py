@@ -6,8 +6,9 @@ import logging
 import pickle
 import datetime
 import dateutil.parser
-import collections
 from functools import wraps
+import functools
+import editdistance
 
 # create logger
 logger = logging.getLogger('zotero_sync')
@@ -102,24 +103,115 @@ class Person(object):
         self.firstname = first
 
     def same(self, other):
-        norm_self_last = re.sub('[\s-_\+:~*&().,]', '', self.lastname.lower())
-        norm_other_last = re.sub('[\s-_\+:~*&().,]', '', other.lastname.lower())
+        norm_self_last = re.sub('[^\w\s]', '', self.lastname.strip().casefold())
+        norm_other_last = re.sub('[^\w\s]', '', other.lastname.strip().casefold())
         if (norm_self_last == norm_other_last):
-            self_first = re.sub('[-_\+:*&()]', '', self.firstname.strip().lower())
-            other_first = re.sub('[-_\+:*&()]', '', self.firstname.strip().lower())
+            self_first = re.sub('[^\w\s.]', '', self.firstname.strip().casefold())
+            other_first = re.sub('[^\w\s.]', '', self.firstname.strip().casefold())
             if (len(self_first) == 0 or len(other_first) == 0):
                 return True
-            self_first_start = re.split('[\s.,_~]+', self_first)[0]
-            other_first_start = re.split('[\s.,_~]+', other_first)[0]
-            if (len(self_first_start) == 2 and self_first_start.isupper()):  # heuristic for initials e.g. PG Odifreddi
+            self_first_start = re.split('[.\s]', self_first)[0]
+            other_first_start = re.split('[\.s]', other_first)[0]
+            if (len(self_first) == len(self_first_start) == 2 and self_first_start.isupper()):  # heuristic for initials e.g. PG Odifreddi
                 self_first_start = self_first_start[0]  # Skip 3 initials like WVO b/c too many names are 3 letters
-            if (len(other_first_start) == 2 and other_first_start.isupper()):
+            if (len(other_first_start) == len(other_first) == 2 and other_first_start.isupper()):
                 other_first_start = other_first_start[0]
-            s = self_first_start.lower()
-            o = other_first_start.lower()
-            if (s.startswith(o) or o.self_first_start.startswith(s)):
+            s = self_first_start.casefold()
+            o = other_first_start.casefold()
+            if (s.startswith(o) or o.startswith(s)):
                 return True
         return False
+
+    def first_initial_only(self):
+        if (re.match('\A\w([ .]|\Z)', self.firstname.strip()) or
+            (len(self.firstname.strip()) == 2 and self.firstname.strip().isalpha() and
+                self.firstname.strip().isupper())):
+            return True
+        else:
+            return False
+
+    def distance(self, other):
+        if (self.firstname == '' or other.firstname == ''):
+            first_dis = 0
+        elif (self.first_initial_only() or other.first_initial_only()):
+            first_dis = 0 if self.first_initial == other.first_initial else 1
+        else:
+            self_clean_first = re.split('[\s.]', self.clean().firstname.casefold())[0]
+            other_clean_first = re.split('[\s.]', other.clean().firstname.casefold())[0]
+            first_dis = editdistance.eval(self_clean_first, other_clean_first)/(min(len(self_clean_first), len(other_clean_first)))
+        self_clean_last = self.clean().lastname.casefold()
+        other_clean_last = other.clean().lastname.casefold()
+        last_dis = editdistance.eval(self_clean_last, other_clean_last)/(min(len(self_clean_last), len(other_clean_last)))
+        return last_dis + first_dis
+
+    def clean(self):
+        p = self.copy()
+        p.firstname = re.sub('[^\w.\s]', '', p.firstname.strip())
+        p.firstname = p.firstname.replace('  ', ' ')
+        p.firstname = re.sub('[ ]\.', '.', p.firstname)
+        p.firstname = p.firstname[:1].upper() + p.firstname[1:]
+        p.firstname = re.sub('(\A|\s|\.)(\w)(\s|\Z)(?!\s*\.)', "\\1\\2.\\3", p.firstname)
+        if (p.first_initial_only()):
+            p.firstname = re.sub('\A(\w)(\w)\.?\Z', "\\1.\\2.", p.firstname)
+        p.firstname = p.firstname.replace('..', '.')
+        p.lastname = re.sub('[^\w\s]', '', p.lastname.strip())
+        p.lastname = p.lastname.replace('  ', ' ')
+        return p
+
+    @staticmethod
+    def best_punct(*people):
+        bestp = people[0]
+        for p in people[1:]:
+            p_good_last = (p.lastname != p.lastname.lower() and p.lastname != p.lastname.upper())
+            best_bad_last = (bestp.lastname == bestp.lastname.lower() or bestp.lastname == bestp.lastname.upper())
+            p_good_first = re.match('\A(([A-Z]\.)|([\w]*))([ ](([A-Z]\.)|([\w]*)))*\Z', p.firstname)
+            best_bad_first = not re.match('\A(([A-Z]\.)|([\w]*))([ ](([A-Z]\.)|([\w]*)))*\Z', bestp.firstname)
+            if (p_good_last == best_bad_last):
+                if (p_good_last):
+                    bestp = p
+            elif (p_good_first == best_bad_first):
+                if (p_good_first):
+                    bestp = p
+            elif (len(p.firstname) > len(bestp.firstname)):
+                bestp = p
+        return bestp
+
+    @staticmethod
+    def merge(*people):
+        if (len(people) == 0):
+            return Person('', '')
+        people = [p.clean() for p in people]
+        last_norm_counts = dict()
+        for p in people:
+            norm_last = p.lastname.replace(' ', '').casefold()
+            last_norm_counts[norm_last] = last_norm_counts.get(norm_last, 0) + 1
+        norm_last = functools.reduce(lambda x, y: y if last_norm_counts[y] > last_norm_counts[x] else x,
+                                     last_norm_counts)
+        people = [p for p in people if p.lastname.replace(' ', '').casefold() == norm_last]
+        best_last = next(filter(lambda p: (p.lastname != p.lastname.lower() and p.lastname != p.lastname.upper()), people), people[0]).lastname
+        counts = dict()
+        for p in (p for p in people if p.first_initial):
+                counts[p.first_initial] = counts.get(p.first_initial, 0) + 1
+        if (len(counts) > 0):
+            first_ini = functools.reduce(lambda x, y: y if counts[y] > counts[x] else x, counts)
+            people = [p for p in people if p.first_initial == first_ini]
+            counts = dict()
+            for p in people:
+                first = re.split('[\s.]', p.firstname, 1)[0].casefold()
+                if (len(first) > 1 and not (len(p.firstname) == 2 and p.firstname.isupper() and p.firstname.isalpha())):  # test for two cap chars being initial
+                    counts[first] = counts.get(first, 0) + 1
+            if (len(counts) > 0):
+                first = functools.reduce(lambda x, y: y if counts[y] > counts[x] else x, counts)
+                people = [p for p in people if re.split('[\s.]+', p.firstname, 1)[0].casefold() == first]
+        # figure we let second initial alone
+                best_first = people[0].firstname
+                for p in people[1:]:
+                    if (len(p.firstname) > len(best_first)):
+                        best_first = p.firstname
+        return Person(last=best_last, first=best_first).clean()
+
+    # def __hash__(self):
+    #     return hash((self.lastname, self.firstname))
 
     def __eq__(self, other):
         return (self.lastname == other.lastname and self.firstname == other.firstname)
@@ -131,6 +223,10 @@ class Person(object):
     def copy(self):
         return Person(self.lastname, self.firstname)
 
+    @property
+    def first_initial(self):
+        return self.firstname.strip()[:1].upper()
+
 
 class Creator(object):
     """ Captures the creator object
@@ -138,6 +234,10 @@ class Creator(object):
     def __init__(self, d):
         self.type = d["creatorType"]
         self.creator = Person(d['lastName'], d['firstName'])
+
+    @staticmethod
+    def factory(first, last, type):
+        return Creator(dict(creatorType=type, lastName=last, firstName=first))
 
     def __eq__(self, other):
         return (self.creator == other.creator and self.type == other.type)
@@ -185,7 +285,6 @@ class ZoteroLibrary(object):
 
     def __init__(self, src):
         self._server = src
-        self._documents_by_name = dict()
         self._attachments_by_md5s = dict()
         self.item_types = ["artwork", "audioRecording", "bill", "blogPost", "book", "bookSection", "case",
                            "computerProgram", "conferencePaper", "dictionaryEntry", "document", "email",
@@ -193,6 +292,96 @@ class ZoteroLibrary(object):
                            "journalArticle", "letter", "magazineArticle", "manuscript", "map", "newspaperArticle",
                            "note", "patent", "podcast", "presentation", "radioBroadcast", "report", "statute",
                            "tvBroadcast", "thesis", "videoRecording", "webpage"]
+        self.all_item_fields = ['numPages', 'numberOfVolumes', 'abstractNote', 'accessDate', 'applicationNumber',
+                                'archive', 'artworkSize', 'assignee', 'billNumber', 'blogTitle', 'bookTitle',
+                                'callNumber', 'caseName', 'code', 'codeNumber', 'codePages', 'codeVolume',
+                                'committee', 'company', 'conferenceName', 'country', 'court', 'DOI', 'date',
+                                'dateDecided', 'dateEnacted', 'dictionaryTitle', 'distributor', 'docketNumber',
+                                'documentNumber', 'edition', 'encyclopediaTitle', 'episodeNumber', 'extra',
+                                'audioFileType', 'filingDate', 'firstPage', 'audioRecordingFormat',
+                                'videoRecordingFormat', 'forumTitle', 'genre', 'history', 'ISBN', 'ISSN',
+                                'institution', 'issue', 'issueDate', 'issuingAuthority', 'journalAbbreviation',
+                                'label', 'language', 'programmingLanguage', 'legalStatus', 'legislativeBody',
+                                'libraryCatalog', 'archiveLocation', 'interviewMedium', 'artworkMedium',
+                                'meetingName', 'nameOfAct', 'network', 'pages', 'patentNumber', 'place',
+                                'postType', 'priorityNumbers', 'proceedingsTitle', 'programTitle',
+                                'publicLawNumber', 'publicationTitle', 'publisher', 'references', 'reportNumber',
+                                'reportType', 'reporter', 'reporterVolume', 'rights', 'runningTime', 'scale',
+                                'section', 'series', 'seriesNumber', 'seriesText', 'seriesTitle', 'session',
+                                'shortTitle', 'studio', 'subject', 'system', 'title', 'thesisType', 'mapType',
+                                'manuscriptType', 'letterType', 'presentationType', 'url', 'university',
+                                'versionNumber', 'volume', 'websiteTitle', 'websiteType']
+        self.special_fields = ['creators', 'relations', 'collections', 'tags', 'children']
+        self.item_fields = {'newspaperArticle': [ 'title', 'abstractNote', 'publicationTitle', 'place', 'edition', 'date', 'section', 'pages', 'language', 'shortTitle', 'ISSN', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'audioRecording': ['title', 'abstractNote', 'audioRecordingFormat', 'seriesTitle', 'volume', 'numberOfVolumes', 'place', 'label', 'date', 'runningTime', 'language', 'ISBN', 'shortTitle', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'url', 'accessDate', 'rights', 'extra', ],
+                            'book': ['title', 'abstractNote', 'series', 'seriesNumber', 'volume', 'numberOfVolumes', 'edition', 'place', 'publisher', 'date', 'numPages', 'language', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'interview': ['title', 'abstractNote', 'date', 'interviewMedium', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'computerProgram': ['title', 'abstractNote', 'seriesTitle', 'versionNumber', 'date', 'system', 'place', 'company', 'programmingLanguage', 'ISBN', 'shortTitle', 'url', 'rights', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'accessDate', 'extra', ],
+                            'document': ['title', 'abstractNote', 'publisher', 'date', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'blogPost': ['title', 'abstractNote', 'blogTitle', 'websiteType', 'date', 'url', 'accessDate', 'language', 'shortTitle', 'rights', 'extra', ],
+                            'artwork': ['title', 'abstractNote', 'artworkMedium', 'artworkSize', 'date', 'language', 'shortTitle', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'url', 'accessDate', 'rights', 'extra', ],
+                            'magazineArticle': ['title', 'abstractNote', 'publicationTitle', 'volume', 'issue', 'date', 'pages', 'language', 'ISSN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'thesis': ['title', 'abstractNote', 'thesisType', 'university', 'place', 'date', 'numPages', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'tvBroadcast': ['title', 'abstractNote', 'programTitle', 'episodeNumber', 'videoRecordingFormat', 'place', 'network', 'date', 'runningTime', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'videoRecording': ['title', 'abstractNote', 'videoRecordingFormat', 'seriesTitle', 'volume', 'numberOfVolumes', 'place', 'studio', 'date', 'runningTime', 'language', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'note': [],
+                            'bookSection': ['title', 'abstractNote', 'bookTitle', 'series', 'seriesNumber', 'volume', 'numberOfVolumes', 'edition', 'place', 'publisher', 'date', 'pages', 'language', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'map': ['title', 'abstractNote', 'mapType', 'scale', 'seriesTitle', 'edition', 'place', 'publisher', 'date', 'language', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'report': ['title', 'abstractNote', 'reportNumber', 'reportType', 'seriesTitle', 'place', 'institution', 'date', 'pages', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'encyclopediaArticle': ['title', 'abstractNote', 'encyclopediaTitle', 'series', 'seriesNumber', 'volume', 'numberOfVolumes', 'edition', 'place', 'publisher', 'date', 'pages', 'ISBN', 'shortTitle', 'url', 'accessDate', 'language', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'statute': ['nameOfAct', 'abstractNote', 'code', 'codeNumber', 'publicLawNumber', 'dateEnacted', 'pages', 'section', 'session', 'history', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                            'dictionaryEntry': ['title', 'abstractNote', 'dictionaryTitle', 'series', 'seriesNumber', 'volume', 'numberOfVolumes', 'edition', 'place', 'publisher', 'date', 'pages', 'language', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'conferencePaper': ['title', 'abstractNote', 'date', 'proceedingsTitle', 'conferenceName', 'place', 'publisher', 'volume', 'pages', 'series', 'language', 'DOI', 'ISBN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'webpage': ['title', 'abstractNote', 'websiteTitle', 'websiteType', 'date', 'shortTitle', 'url', 'accessDate', 'language', 'rights', 'extra', ],
+                            'journalArticle': ['title', 'abstractNote', 'publicationTitle', 'volume', 'issue', 'pages', 'date', 'series', 'seriesTitle', 'seriesText', 'journalAbbreviation', 'language', 'DOI', 'ISSN', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'case': ['caseName', 'abstractNote', 'reporter', 'reporterVolume', 'court', 'docketNumber', 'firstPage', 'history', 'dateDecided', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                            'email': ['subject', 'abstractNote', 'date', 'shortTitle', 'url', 'accessDate', 'language', 'rights', 'extra', ],
+                            'letter': ['title', 'abstractNote', 'letterType', 'date', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'bill': ['title', 'abstractNote', 'billNumber', 'code', 'codeVolume', 'section', 'codePages', 'legislativeBody', 'session', 'history', 'date', 'language', 'url', 'accessDate', 'shortTitle', 'rights', 'extra', ],
+                            'hearing': ['title', 'abstractNote', 'committee', 'place', 'publisher', 'numberOfVolumes', 'documentNumber', 'pages', 'legislativeBody', 'session', 'history', 'date', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                            'instantMessage': ['title', 'abstractNote', 'date', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                            'radioBroadcast': ['title', 'abstractNote', 'programTitle', 'episodeNumber', 'audioRecordingFormat', 'place', 'network', 'date', 'runningTime', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'podcast': ['title', 'abstractNote', 'seriesTitle', 'episodeNumber', 'audioFileType', 'runningTime', 'url', 'accessDate', 'language', 'shortTitle', 'rights', 'extra', ],
+                            'film': ['title', 'abstractNote', 'distributor', 'date', 'genre', 'videoRecordingFormat', 'runningTime', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'patent': ['title', 'abstractNote', 'place', 'country', 'assignee', 'issuingAuthority', 'patentNumber', 'filingDate', 'pages', 'applicationNumber', 'priorityNumbers', 'issueDate', 'references', 'legalStatus', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                            'manuscript': ['title', 'abstractNote', 'manuscriptType', 'place', 'date', 'numPages', 'language', 'shortTitle', 'url', 'accessDate', 'archive', 'archiveLocation', 'libraryCatalog', 'callNumber', 'rights', 'extra', ],
+                            'forumPost': ['title', 'abstractNote', 'forumTitle', 'postType', 'date', 'language', 'shortTitle', 'url', 'accessDate', 'rights', 'extra', ],
+                            'presentation': ['title', 'abstractNote', 'presentationType', 'date', 'place', 'meetingName', 'url', 'accessDate', 'language', 'shortTitle', 'rights', 'extra' ]}
+        self.item_creator_types = {'newspaperArticle': ['author', 'contributor', 'reviewedAuthor','translator'],
+                                   'audioRecording': ['performer', 'composer', 'contributor', 'wordsBy'],
+                                   'book': ['author', 'contributor', 'editor', 'seriesEditor', 'translator'],
+                                   'interview': ['interviewee', 'contributor', 'interviewer', 'translator'],
+                                   'computerProgram': ['programmer', 'contributor'],
+                                   'document': ['author', 'contributor', 'editor', 'reviewedAuthor', 'translator'],
+                                   'blogPost': ['author', 'commenter', 'contributor'],
+                                   'artwork': ['artist', 'contributor'],
+                                   'magazineArticle': ['author', 'contributor', 'reviewedAuthor', 'translator'],
+                                   'thesis': ['author', 'contributor'],
+                                   'tvBroadcast': ['director', 'castMember', 'contributor', 'guest', 'producer', 'scriptwriter'],
+                                   'videoRecording': ['director', 'castMember', 'contributor', 'producer', 'scriptwriter'],
+                                   'note': [],
+                                   'bookSection': ['author', 'bookAuthor', 'contributor', 'editor', 'seriesEditor', 'translator'],
+                                   'map': ['cartographer', 'contributor', 'seriesEditor'],
+                                   'report': ['author', 'contributor', 'seriesEditor', 'translator'],
+                                   'encyclopediaArticle': ['author', 'contributor', 'editor', 'seriesEditor', 'translator'],
+                                   'statute': ['author', 'contributor'],
+                                   'dictionaryEntry': ['author', 'contributor', 'editor', 'seriesEditor', 'translator'],
+                                   'conferencePaper': ['author', 'contributor', 'editor', 'seriesEditor', 'translator'],
+                                   'webpage': ['author', 'contributor', 'translator'],
+                                   'journalArticle': ['author', 'contributor', 'editor', 'reviewedAuthor', 'translator'],
+                                   'case': ['author', 'contributor', 'counsel'],
+                                   'email': ['author', 'contributor', 'recipient'],
+                                   'letter': ['author', 'contributor', 'recipient'],
+                                   'bill': ['sponsor', 'contributor', 'cosponsor'],
+                                   'hearing': ['contributor'],
+                                   'instantMessage': ['author', 'contributor', 'recipient'],
+                                   'radioBroadcast': ['director', 'castMember', 'contributor', 'guest', 'producer', 'scriptwriter'],
+                                   'podcast': ['podcaster', 'contributor', 'guest'],
+                                   'film': ['director', 'contributor', 'producer', 'scriptwriter'],
+                                   'patent': ['inventor', 'attorneyAgent', 'contributor'],
+                                   'manuscript': ['author', 'contributor', 'translator'],
+                                   'forumPost': ['author', 'contributor'],
+                                   'presentation': ['presenter', 'contributor']}
         self._collections = set()
         self._documents = set()
         self._attachments = set()
@@ -206,6 +395,19 @@ class ZoteroLibrary(object):
         self._next_version = None
         self.abort = False
         self._revert = False
+        logger.debug("Initialize ZoteroLibrary")
+
+    @property
+    def documents(self):
+        return self._documents
+
+    @property
+    def collections(self):
+        return self._collections
+
+    @property
+    def attachments(self):
+        return self._attachments
 
     def _early_abort(self):
         """If abort flag is set raises EarlyExit
@@ -219,6 +421,7 @@ class ZoteroLibrary(object):
         if (self._version is not None):
             params['since'] = self._version
             deleted = self._server.deleted(**params)
+            logger.info("%s Objects Deleted On Server", len(deleted))
             for key in (i for k in deleted if (k == "items" or k == "collections") for i in deleted[k]):
                 if (key in self._objects_by_key):
                     obj = self._objects_by_key[key]
@@ -243,8 +446,19 @@ class ZoteroLibrary(object):
                 self._next_version = None
 
     def pull(self):
+        logger.info("---- Initiating Pull Request ----\n\tFrom Version: %s", self._version)
+        logger.info("Library Contains:\n\tCollections: %s\n\tDocuments: %s\n\tAttachments: %s\n\tTotal Objects: %s",
+                    len(self._collections), len(self._documents), len(self._attachments), len(self._objects_by_key))
         self._queue_pull()
+        logger.info("-- Pull Request Queued --")
+        logger.info("\tItems Queued For Refresh: %s\n\tCollections Queued For Refresh: %s",
+                    len(self._itemkeys_for_refresh), len(self._collkeys_for_refresh))
         self._process_pull()
+        logger.info("---- Finished Pull Request ----\n\tAt Version: %s", self._version)
+        logger.info("Library Contains:\n\tCollections: %s\n\tDocuments: %s\n\tAttachments: %s\n\tTotal Objects: %s",
+                    len(self._collections), len(self._documents), len(self._attachments), len(self._objects_by_key))
+        logger.info("\tItems Remaining For Refresh: %s\n\tCollections Remaining For Refresh: %s",
+                    len(self._itemkeys_for_refresh), len(self._collkeys_for_refresh))
 
     @staticmethod
     def _fifty_keys_from_set(set):
@@ -261,19 +475,27 @@ class ZoteroLibrary(object):
 
     def _refresh_queued_items(self):
         while(len(self._itemkeys_for_refresh) > 0):
-            newitems = self._server.items(itemKeys=self._fifty_keys_from_set(self._itemkeys_for_refresh))
+            ikeys = self._fifty_keys_from_set(self._itemkeys_for_refresh)
+            logger.debug("Asking server for the following item string: %s", ikeys)
+            newitems = self._server.items(itemKey=ikeys)
             for i in newitems:
+                logger.debug("Recieving item: %s", i['data']['key'])
                 self._recieve_item(i)
             self._early_abort()
 
     def _refresh_queued_collections(self):
         keys = self._collkeys_for_refresh.copy()
         for key in keys:
+                logger.debug("Recieving Collection: %s", key)
                 self._recieve_collection(self._server.collection(key))
                 self._early_abort()
 
-    def _update_item_types(self):
+    def _update_template_data(self):
         self.item_types = [d["itemType"] for d in self._server.item_types()]
+        self.all_item_fields = [d['field'] for d in self._server.item_fields()]
+        self.item_fields = {i: [d['field'] for d in self._server.item_type_fields(i)] for i in self.item_types}
+        self.item_creator_types = {i: [d['creatorType'] for d in self._server.item_creator_types(i)
+                                       ] for i in self.item_types}
 
     def mark_dirty(self, obj):
         self._dirty_objects.add(obj)
@@ -288,9 +510,6 @@ class ZoteroLibrary(object):
         if (isinstance(obj, ZoteroCollection)):
             self._collections.discard(obj)
         elif (isinstance(obj, ZoteroDocument)):
-            key = self.build_name_key(obj.title)
-            if (key in self._documents_by_name):
-                self._documents_by_name[key].discard(obj)
             self._documents.discard(obj)
         elif (isinstance(obj, ZoteroAttachment)):
             md5 = obj.md5
@@ -309,10 +528,6 @@ class ZoteroLibrary(object):
                 newkey += random.choice(ZoteroLibrary.AllowedKeyChars)
         return newkey
 
-    @staticmethod
-    def build_name_key(string):
-        return re.sub('\s|[-_+:~*&()]', '', string.lower())
-
     def get_obj_by_key(self, key):
         if (key in self._objects_by_key):
             return self._objects_by_key[key]
@@ -329,6 +544,8 @@ class ZoteroLibrary(object):
             else:
                 ZoteroItem.factory(self, dict)
             self._itemkeys_for_refresh.discard(key)
+            logger.debug("Removing key %s from _itemkeys_for_refresh", key)
+            assert key not in self._itemkeys_for_refresh
         except KeyError as e:
             raise InvalidData(dict) from e
 
@@ -342,6 +559,7 @@ class ZoteroLibrary(object):
             else:
                 ZoteroCollection.factory(self, dict)
             self._collkeys_for_refresh.discard(key)
+            logger.debug("Removing key %s from _collkeys_for_refresh", key)
         except KeyError as e:
             raise InvalidData(dict) from e
 
@@ -397,8 +615,8 @@ class ZoteroLibrary(object):
     def _register_into_collection(self, obj, ckey):
         if (isinstance(ckey, ZoteroObject)):
             ckey = ckey.key
-        logger.debug("called _register_into_collection in ZoteroLibrary with obj.key=%s and " +
-                     "collection key=%s", obj.key, ckey)
+        # logger.debug("called _register_into_collection in ZoteroLibrary with obj.key=%s and " +
+        #              "collection key=%s", obj.key, ckey)
         if (ckey not in self._objects_by_key):
             col = ZoteroCollection(self, ckey)
         else:
@@ -479,6 +697,12 @@ class ZoteroObject(object):
             self._data = dict(key=arg, version=-1)
         self._library._register_obj(self)
 
+    def __repr__(self):
+        return self.__class__.__name__ + "(" + self._library.__repr__() + ", " + self._data.__repr__() + ")"
+
+    def __str__(self):
+        return self.name
+
     def refresh(self, dict):
         try:
             if (self.version >= dict["data"]["version"]):
@@ -499,18 +723,17 @@ class ZoteroObject(object):
             self._changed_from[k] = val
 
     def _register_property(self, pkey, pval):
-        logger.debug("called _register_property in ZoteroObject with pkey=%s and pval=%s", pkey, pval)
+        # logger.debug("called _register_property in ZoteroObject with pkey=%s and pval=%s", pkey, pval)
         if (isinstance(pval, ZoteroObject)):
             pval = pval.key
-        if (pval is None):
-            del self._data[pkey]
-        else:
-            self._data[pkey] = pval
+        self._data[pkey] = pval
         if (pkey == self._parent_key):
             self._register_parent(pval)
+            if (pval is None):
+                del self._data[pkey]
 
     def _set_property(self, pkey, pval):  # Deals with underlying representation
-        logger.debug("called _set_property in ZoteroObject")
+        # logger.debug("called _set_property in ZoteroObject")
         if (pkey == "key"):
             raise InvalidProperty("Can't change key")
         if (pkey == "dateModified" or pkey == 'version'):
@@ -585,7 +808,6 @@ class ZoteroObject(object):
         return self.properties().__iter__()
 
     def properties(self):
-        yield "children"
         if (self._parent_key is not None):
             yield "parent"
         yield from (p for p in self._data if (p != self._parent_key and p != "key" and p != "version"))
@@ -625,7 +847,7 @@ class ZoteroObject(object):
 
     @dirty.setter
     def dirty(self, val):
-        logger.debug("called dirty setter in ZoteroObject")
+        # logger.debug("called dirty setter in ZoteroObject")
         if (val):
             self._dirty = True
             self._library.mark_dirty(self)
@@ -673,6 +895,10 @@ class ZoteroObject(object):
     def key(self):
         return self._data["key"]
 
+    @property
+    def name(self):
+        return (self._data["name"] if "name" in self._data else '')
+
 
 class ZoteroItem(ZoteroObject):
 
@@ -681,7 +907,7 @@ class ZoteroItem(ZoteroObject):
         super().__init__(library, arg)
 
     def _register_property(self, pkey, pval):
-        logger.debug("called _register_property in ZoteroItem with pkey=%s and pval=%s", pkey, pval)
+        # logger.debug("called _register_property in ZoteroItem with pkey=%s and pval=%s", pkey, pval)
         if (pkey == "collections"):
             for c in self._collections:
                 self._library._register_outof_collection(self, c)
@@ -790,8 +1016,8 @@ class ZoteroItem(ZoteroObject):
             super().__delitem__(pkey)
 
     def properties(self):
-        yield "dateModified"
-        yield from (p for p in super().properties() if (p != "dateModified" and p != "itemType" and p != "linkMode"))
+        yield from (p for p in super().properties() if (
+            p != "dateModified" and p != "itemType" and p != "linkMode" and p != "itemType"))
 
     def _remove(self, refresh=False):
         if self.deleted:
@@ -808,7 +1034,7 @@ class ZoteroItem(ZoteroObject):
 
     @dirty.setter
     def dirty(self, val):
-        logger.debug("called dirty setter in ZoteroItem")
+        # logger.debug("called dirty setter in ZoteroItem")
         if (val):
             self._dirty = True
             self._library.mark_dirty(self)
@@ -965,10 +1191,14 @@ class ZoteroDocument(ZoteroItem):
         self._library._register_document(self)
 
     def _set_property(self, pkey, pval):
-        logger.debug("called _set_property in ZoteroDocument with pkey=%s and pval=%s", pkey, pval)
+        # logger.debug("called _set_property in ZoteroDocument with pkey=%s and pval=%s", pkey, pval)
         if (pkey == "itemType" and pval not in self._library.item_types):
             raise InvalidProperty("Tried to set itemType to {}".format(pval))
         super()._set_property(pkey, pval)
+
+    def properties(self):
+        yield "children"
+        yield from super().properties()
 
 
 class ZoteroAttachment(ZoteroItem):
@@ -982,6 +1212,8 @@ class ZoteroAttachment(ZoteroItem):
                     return ZoteroLinkedFile
             elif (dict["data"]["linkMode"] == "imported_file"):
                     return ZoteroImportedFile
+            elif (dict["data"]["linkMode"] == "imported_url"):
+                    return ZoteroImportedUrl
             else:
                 raise InvalidData(dict, "Unkown attachment type")
         except KeyError as e:
@@ -992,7 +1224,7 @@ class ZoteroAttachment(ZoteroItem):
         self._library._register_attachment(self)
 
     def _set_property(self, pkey, pval):
-        logger.debug("called _set_property in ZoteroAttachment")
+        # logger.debug("called _set_property in ZoteroAttachment")
         if (pkey == "itemType"):
             if (pval != "attachment"):
                 raise InvalidProperty("Can't change attachment itemType")
@@ -1016,7 +1248,7 @@ class ZoteroAttachment(ZoteroItem):
 class ZoteroLinkedFile(ZoteroAttachment):
 
     def _set_property(self, pkey, pval):
-        logger.debug("called _set_property in ZoteroLinkedFile")
+        # logger.debug("called _set_property in ZoteroLinkedFile")
         if (pkey == "linkMode"):
             if (pval != "linked_file"):
                 raise InvalidProperty("Can't change attachment linkMode")
@@ -1029,9 +1261,22 @@ class ZoteroLinkedFile(ZoteroAttachment):
 class ZoteroImportedFile(ZoteroAttachment):
 
     def _set_property(self, pkey, pval):
-        logger.debug("called _set_property in ZoteroImportedFile")
+        # logger.debug("called _set_property in ZoteroImportedFile")
         if (pkey == "linkMode"):
             if (pval != "imported_file"):
+                raise InvalidProperty("Can't change attachment linkMode")
+            else:
+                return
+        else:
+            super()._set_property(pkey, pval)
+
+
+class ZoteroImportedUrl(ZoteroAttachment):
+
+    def _set_property(self, pkey, pval):
+        # logger.debug("called _set_property in ZoteroImportedFile")
+        if (pkey == "linkMode"):
+            if (pval != "imported_url"):
                 raise InvalidProperty("Can't change attachment linkMode")
             else:
                 return
@@ -1055,12 +1300,6 @@ class ZoteroCollection(ZoteroObject):
             i.remove_from_collection(self, refresh=refresh)
         super()._remove(refresh=refresh)
 
-
-# try:
-#     pkl = open(SaveFile, "rb")
-#     library = pickle.load(pkl)
-# except IOError:
-#     zot = zotero.Zotero(3661336, "user", "NnfdXD5dmXkCJcGUBDgJTEV9")
-#     library = ZoteroLibrary(zot)
-# finally:
-#     pkl.close()
+    def properties(self):
+        yield "children"
+        yield from super().properties()

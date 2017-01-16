@@ -11,13 +11,13 @@ def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
 setup(name='zoterosync',
-      version='0.1',
+      version='0.2',
       description='Persistant Syncing with Zotero',
       author='Peter Gerdes',
       author_email='gerdes@invariant.org',
       license='BSD',
-      packages=find_packages(),
-      # packages=['zoterosync', 'tests'],
+      #packages=find_packages(),
+      packages=['zoterosync', 'tests'],
       long_description=read('README'),
       classifiers=[
         "Development Status :: 3 - Alpha",
@@ -31,5 +31,5 @@ setup(name='zoterosync',
       zip_safe=False,
       entry_points='''
         [console_scripts]
-        yourscript=yourpackage.scripts.yourscript:cli
+        zoterosync=zoterosync.script:cli
     ''')

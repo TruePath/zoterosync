@@ -144,7 +144,7 @@ def test_createdoc_simp(zoterolocal, zdocsimp):
     assert 'key' not in zdoc
     assert 'version' not in zdoc
     assert 'title' in zdoc
-    assert "dateModified" in zdoc
+    assert "dateModified" not in zdoc
     assert "dateAdded" in zdoc
     assert "creators" in zdoc
     assert zdoc.creators == zdoc["creators"]
@@ -182,7 +182,7 @@ def test_refreshcreatedoc_simp(zoterolocal):
     assert 'key' not in zdoc
     assert 'version' not in zdoc
     assert 'title' in zdoc
-    assert "dateModified" in zdoc
+    assert "dateModified" not in zdoc
     assert "dateAdded" in zdoc
     assert "creators" in zdoc
     assert zdoc.creators == zdoc["creators"]
@@ -228,7 +228,7 @@ def test_modifydoc_simp(zdocsimp):
     assert 'version' not in zdoc
     assert 'title' in zdoc
     assert "date" in zdoc
-    assert "dateModified" in zdoc
+    assert "dateModified" not in zdoc
     assert "dateAdded" in zdoc
 
 

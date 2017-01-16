@@ -38,15 +38,18 @@ class ZoteroLibraryStore(object):
     def init_library(self):
         self.library = zoterosync.ZoteroLibrary.factory(self.user, self.apikey)
 
-    def write_library(self):
+    def write_library(self, dest=None):
         if (self.library is None):
             raise Exception("Can't save non-existant library")
-        with self._library_path.open(mode='wb') as lib_file:
+        if (dest is None):
+            dest = self._library_path
+        with dest.open(mode='wb') as lib_file:
             pickle.dump(self.library, lib_file)
 
     def load_library(self):
         with self._library_path.open(mode='rb') as lib_file:
             self.library = pickle.load(lib_file)
+
 
 @click.group()
 @click.option('--config', type=click.Path(), default='.zoterosync_config')
@@ -65,4 +68,26 @@ def init(store, user, key):
     store.apikey = key
     store.init_library()
     store.write_config()
+    store.write_library()
+
+
+@cli.command()
+@click.pass_obj
+def pull(store):
+    store.load_library()
+    store.library.pull()
+    store.write_library()
+
+
+def abort_reset(ctx, param, value):
+    if not value:
+        click.echo("Pass the --force option to delete all local library data!")
+        ctx.abort()
+
+
+@cli.command()
+@click.option('--force', is_flag=True, callback=abort_reset, expose_value=False)
+@click.pass_obj
+def reset(store):
+    store.init_library()
     store.write_library()
