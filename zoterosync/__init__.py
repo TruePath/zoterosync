@@ -99,8 +99,16 @@ class EarlyExit(Exception):
 class Person(object):
 
     def __init__(self, last, first):
-        self.lastname = last
-        self.firstname = first
+        self._lastname = last
+        self._firstname = first
+
+    @property
+    def firstname(self):
+        return self._firstname
+
+    @property
+    def lastname(self):
+        return self._lastname
 
     def same(self, other):
         norm_self_last = re.sub('[^\w\s]', '', self.lastname.strip().casefold())
@@ -145,36 +153,19 @@ class Person(object):
         return last_dis + first_dis
 
     def clean(self):
-        p = self.copy()
-        p.firstname = re.sub('[^\w.\s]', '', p.firstname.strip())
-        p.firstname = p.firstname.replace('  ', ' ')
-        p.firstname = re.sub('[ ]\.', '.', p.firstname)
-        p.firstname = p.firstname[:1].upper() + p.firstname[1:]
-        p.firstname = re.sub('(\A|\s|\.)(\w)(\s|\Z)(?!\s*\.)', "\\1\\2.\\3", p.firstname)
-        if (p.first_initial_only()):
-            p.firstname = re.sub('\A(\w)(\w)\.?\Z', "\\1.\\2.", p.firstname)
-        p.firstname = p.firstname.replace('..', '.')
-        p.lastname = re.sub('[^\w\s]', '', p.lastname.strip())
-        p.lastname = p.lastname.replace('  ', ' ')
-        return p
-
-    @staticmethod
-    def best_punct(*people):
-        bestp = people[0]
-        for p in people[1:]:
-            p_good_last = (p.lastname != p.lastname.lower() and p.lastname != p.lastname.upper())
-            best_bad_last = (bestp.lastname == bestp.lastname.lower() or bestp.lastname == bestp.lastname.upper())
-            p_good_first = re.match('\A(([A-Z]\.)|([\w]*))([ ](([A-Z]\.)|([\w]*)))*\Z', p.firstname)
-            best_bad_first = not re.match('\A(([A-Z]\.)|([\w]*))([ ](([A-Z]\.)|([\w]*)))*\Z', bestp.firstname)
-            if (p_good_last == best_bad_last):
-                if (p_good_last):
-                    bestp = p
-            elif (p_good_first == best_bad_first):
-                if (p_good_first):
-                    bestp = p
-            elif (len(p.firstname) > len(bestp.firstname)):
-                bestp = p
-        return bestp
+        firstname = self.firstname
+        lastname = self.lastname
+        firstname = re.sub('[^\w.\s]', '', firstname.strip())
+        firstname = firstname.replace('  ', ' ')
+        firstname = re.sub('[ ]\.', '.', firstname)
+        firstname = firstname[:1].upper() + firstname[1:]
+        firstname = re.sub('(\A|\s|\.)(\w)(\s|\Z)(?!\s*\.)', "\\1\\2.\\3", firstname)
+        if (self.first_initial_only()):
+            firstname = re.sub('\A(\w)(\w)\.?\Z', "\\1.\\2.", firstname)
+        firstname = firstname.replace('..', '.')
+        lastname = re.sub('[^\w\s]', '', lastname.strip())
+        lastname = lastname.replace('  ', ' ')
+        return Person(last=lastname, first=firstname)
 
     @staticmethod
     def merge(*people):
@@ -210,8 +201,8 @@ class Person(object):
                         best_first = p.firstname
         return Person(last=best_last, first=best_first).clean()
 
-    # def __hash__(self):
-    #     return hash((self.lastname, self.firstname))
+    def __hash__(self):
+        return hash((self.lastname, self.firstname))
 
     def __eq__(self, other):
         return (self.lastname == other.lastname and self.firstname == other.firstname)
@@ -232,8 +223,8 @@ class Creator(object):
     """ Captures the creator object
     """
     def __init__(self, d):
-        self.type = d["creatorType"]
-        self.creator = Person(d['lastName'], d['firstName'])
+        self._type = d["creatorType"]
+        self._creator = Person(d['lastName'], d['firstName'])
 
     @staticmethod
     def factory(first, last, type):
@@ -241,6 +232,9 @@ class Creator(object):
 
     def __eq__(self, other):
         return (self.creator == other.creator and self.type == other.type)
+
+    def __hash__(self):
+        return hash((self.creator, self.type))
 
     def same(self, other):
         return self.creator.same(other.creator)
@@ -251,27 +245,28 @@ class Creator(object):
     def copy(self):
         return Creator(self.to_dict())
 
-    def find_same(self, list):
-        for i in list:
-            if (self.same(i)):
-                return i
-        return None
+    @property
+    def type(self):
+        return self._type
+
+    @property
+    def creator(self):
+        return self._creator
+
+    @property
+    def first_initial(self):
+        return self.creator.first_initial
 
     @property
     def lastname(self):
         return self.creator.lastname
 
-    @lastname.setter
-    def lastname(self, val):
-        self.creator.lastname = val
-
     @property
     def firstname(self):
         return self.creator.firstname
 
-    @firstname.setter
-    def firstname(self, val):
-        self.creator.firstname = val
+    def first_initial_only(self):
+        return self.creator.first_initial_only()
 
 
 class ZoteroLibrary(object):
@@ -522,7 +517,7 @@ class ZoteroLibrary(object):
 
     def new_key(self):
         newkey = ""
-        while(newkey == "" or newkey in self.items):
+        while(newkey == "" or newkey in self._objects_by_key):
             newkey = ""
             for i in range(8):
                 newkey += random.choice(ZoteroLibrary.AllowedKeyChars)

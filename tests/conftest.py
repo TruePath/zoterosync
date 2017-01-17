@@ -4,6 +4,7 @@ import itertools
 import functools
 from functools import reduce
 from pyzotero import zotero_errors
+import copy
 
 def paged_iter(iterat, n):
     itr = iter(iterat)
@@ -269,6 +270,16 @@ def zoteroremote():
 def zotero_write_remote():
     return zoterosync.ZoteroLibrary.factory(3661336, "NnfdXD5dmXkCJcGUBDgJTEV9")
 
+
+@pytest.fixture
+def zotero_double_doc():
+    zot = zoterosync.ZoteroLibrary(ZoteroLocal())
+    for i in doc_data:
+        zot._recieve_item(i)
+    for i in copy.deepcopy(doc_data):
+        i['data']['key'] = zot.new_key()
+        zot._recieve_item(i)
+    return zot
 
 
 

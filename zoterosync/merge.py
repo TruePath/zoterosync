@@ -131,7 +131,7 @@ class ZoteroDocumentMerger(object):
                 merge[field] = self.attr_merge(field)
             self._merges[self._to_merge] = merge
 
-    def creator_merge(self, vals):
+    def merge_creators(self, vals):
         creators = [c for list in vals for c in list if c.type in self._library.item_creator_types[self._cur_item_type]]
         grouping = dict()
 
@@ -185,4 +185,3 @@ class SimpleZDocMerger(ZoteroDocumentMerger):
 
         def duplicates(self):
             yield from self._buckets.items()
-
