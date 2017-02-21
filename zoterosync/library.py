@@ -1176,6 +1176,11 @@ class ZoteroDocument(ZoteroItem):
             raise InvalidProperty("Tried to set itemType to {}".format(pval))
         super()._set_property(pkey, pval)
 
+    def properties(self):
+        yield "children"
+        yield from super().properties()
+
+
 class ZoteroAttachment(ZoteroItem):
 
     _parent_key = "parentItem"   # override in inherited classes

@@ -147,7 +147,7 @@ def test_createdoc_simp(zoterolocal, zdocsimp):
     assert "dateModified" not in zdoc
     assert "dateAdded" in zdoc
     assert "creators" in zdoc
-    assert "children" not in zdoc
+    assert "children" in zdoc
     assert zdoc.creators == zdoc["creators"]
     assert len(zdoc.creators) == 2
     assert zdoc.creators[0].firstname == 'Dhruva R.'
