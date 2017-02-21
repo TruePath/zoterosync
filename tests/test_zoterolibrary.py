@@ -6,19 +6,19 @@ import copy
 
 @pytest.fixture
 def zdocsimp(zoterolocal):
-    return zoterosync.ZoteroDocument(zoterolocal, docsimp)
+    return zoterosync.library.ZoteroDocument(zoterolocal, docsimp)
 
 
 @pytest.fixture
 def zdocsimp_keyonly(zoterolocal):
-    return zoterosync.ZoteroDocument(zoterolocal, '52JRNN9E')
+    return zoterosync.library.ZoteroDocument(zoterolocal, '52JRNN9E')
 
 
 @pytest.fixture
 def zdoc_collections(zoterolocal):
     doc_col = copy.deepcopy(docsimp)
     doc_col['data']['collections'] = ['2QWF3CPM', '3QWF3CPM']
-    return zoterosync.ZoteroDocument(zoterolocal, doc_col)
+    return zoterosync.library.ZoteroDocument(zoterolocal, doc_col)
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def zdoc_refresh_collections(zoterolocal, zdocsimp_keyonly):
 def zdoc_tags(zoterolocal):
     doc_tags = copy.deepcopy(docsimp)
     doc_tags['data']['tags'] = [{'tag': 'parallel'}, {'tag': 'test'}]
-    return zoterosync.ZoteroDocument(zoterolocal, doc_tags)
+    return zoterosync.library.ZoteroDocument(zoterolocal, doc_tags)
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def zdoc_relations(zoterolocal):
     doc_rels = copy.deepcopy(docsimp)
     doc_rels['data']['relations'] = {'dc:replaces': ['url1', 'url2'],
                                      'dc:bs': ['test1', 'test2']}
-    return zoterosync.ZoteroDocument(zoterolocal, doc_rels)
+    return zoterosync.library.ZoteroDocument(zoterolocal, doc_rels)
 
 
 @pytest.fixture
@@ -125,7 +125,7 @@ coll_simp =     {
 
 
 def test_createdoc_simp(zoterolocal, zdocsimp):
-    # zdoc = zoterosync.ZoteroDocument(zoterolocal, docsimp)
+    # zdoc = zoterosync.library.ZoteroDocument(zoterolocal, docsimp)
     zdoc = zdocsimp
     lib = zoterolocal
     assert zdoc.key == '52JRNN9E'
@@ -147,6 +147,7 @@ def test_createdoc_simp(zoterolocal, zdocsimp):
     assert "dateModified" not in zdoc
     assert "dateAdded" in zdoc
     assert "creators" in zdoc
+    assert "children" not in zdoc
     assert zdoc.creators == zdoc["creators"]
     assert len(zdoc.creators) == 2
     assert zdoc.creators[0].firstname == 'Dhruva R.'
@@ -160,7 +161,7 @@ def test_createdoc_simp(zoterolocal, zdocsimp):
 
 
 def test_refreshcreatedoc_simp(zoterolocal):
-    zdoc = zoterosync.ZoteroDocument(zoterolocal, '52JRNN9E')
+    zdoc = zoterosync.library.ZoteroDocument(zoterolocal, '52JRNN9E')
     lib = zoterolocal
     assert zdoc in lib._documents
     assert lib.get_obj_by_key(zdoc.key) == zdoc
@@ -201,7 +202,7 @@ def test_modifydoc_simp(zdocsimp):
     zdoc = zdocsimp
     zdoc.title = "new title"
     zdoc.date_added = datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
-    with pytest.raises(zoterosync.InvalidProperty):
+    with pytest.raises(zoterosync.library.InvalidProperty):
         zdoc.type = "BSTYPE"
     zdoc.type = "bookSection"
     zdoc["date"] = "2001"
@@ -234,7 +235,7 @@ def test_modifydoc_simp(zdocsimp):
 
 def test_register_new_collection(zoterolocal):
     lib = zoterolocal
-    cthree = zoterosync.ZoteroCollection(lib, '4QWF3CPM')
+    cthree = zoterosync.library.ZoteroCollection(lib, '4QWF3CPM')
     assert lib.get_obj_by_key(cthree.key) == cthree
     assert cthree in lib._collections
 
@@ -247,8 +248,8 @@ def test_create_collections(zoterolocal, zdoc_collections):
     assert len(cols) == 2
     cone = cols.pop()
     ctwo = cols.pop()
-    assert isinstance(cone, zoterosync.ZoteroCollection)
-    assert isinstance(ctwo, zoterosync.ZoteroCollection)
+    assert isinstance(cone, zoterosync.library.ZoteroCollection)
+    assert isinstance(ctwo, zoterosync.library.ZoteroCollection)
     assert cone.key in ['2QWF3CPM', '3QWF3CPM']
     assert ctwo.key in ['2QWF3CPM', '3QWF3CPM']
     assert cone.key != ctwo.key
@@ -266,8 +267,8 @@ def test_refresh_create_collections(zoterolocal, zdoc_refresh_collections):
     assert len(cols) == 2
     cone = cols.pop()
     ctwo = cols.pop()
-    assert isinstance(cone, zoterosync.ZoteroCollection)
-    assert isinstance(ctwo, zoterosync.ZoteroCollection)
+    assert isinstance(cone, zoterosync.library.ZoteroCollection)
+    assert isinstance(ctwo, zoterosync.library.ZoteroCollection)
     assert cone.key in ['2QWF3CPM', '3QWF3CPM']
     assert ctwo.key in ['2QWF3CPM', '3QWF3CPM']
     assert cone.key != ctwo.key
@@ -282,7 +283,7 @@ def test_modify_collections(zoterolocal, zdoc_collections):
     cols = zdoc["collections"].copy()
     cone = cols.pop()
     ctwo = cols.pop()
-    cthree = zoterosync.ZoteroCollection(zoterolocal, '4QWF3CPM')
+    cthree = zoterosync.library.ZoteroCollection(zoterolocal, '4QWF3CPM')
     zdoc["collections"] = {cone, cthree}
     assert zdoc["collections"] == {cone, cthree}
     assert zdoc in cone.members
@@ -391,48 +392,48 @@ def test_del_relations(zoterolocal, zdoc_relations):
 
 
 def test_factory_document(zoterolocal):
-    zobj = zoterosync.ZoteroObject.factory(zoterolocal, docsimp)
-    assert isinstance(zobj, zoterosync.ZoteroDocument)
+    zobj = zoterosync.library.ZoteroObject.factory(zoterolocal, docsimp)
+    assert isinstance(zobj, zoterosync.library.ZoteroDocument)
 
 
 def test_factory_document_from_document(zoterolocal):
-    zobj = zoterosync.ZoteroDocument.factory(zoterolocal, docsimp)
-    assert isinstance(zobj, zoterosync.ZoteroDocument)
+    zobj = zoterosync.library.ZoteroDocument.factory(zoterolocal, docsimp)
+    assert isinstance(zobj, zoterosync.library.ZoteroDocument)
 
 
 def test_factory_document_from_item(zoterolocal):
-    zobj = zoterosync.ZoteroItem.factory(zoterolocal, docsimp)
-    assert isinstance(zobj, zoterosync.ZoteroDocument)
+    zobj = zoterosync.library.ZoteroItem.factory(zoterolocal, docsimp)
+    assert isinstance(zobj, zoterosync.library.ZoteroDocument)
 
 
 def test_factory_linked(zoterolocal):
-    zobj = zoterosync.ZoteroObject.factory(zoterolocal, linked_file_simp)
-    assert isinstance(zobj, zoterosync.ZoteroLinkedFile)
+    zobj = zoterosync.library.ZoteroObject.factory(zoterolocal, linked_file_simp)
+    assert isinstance(zobj, zoterosync.library.ZoteroLinkedFile)
 
 
 def test_factory_imported(zoterolocal):
-    zobj = zoterosync.ZoteroObject.factory(zoterolocal, imported_file_simp)
-    assert isinstance(zobj, zoterosync.ZoteroImportedFile)
+    zobj = zoterosync.library.ZoteroObject.factory(zoterolocal, imported_file_simp)
+    assert isinstance(zobj, zoterosync.library.ZoteroImportedFile)
 
 
 def test_factory_linked_from_attachment(zoterolocal):
-    zobj = zoterosync.ZoteroAttachment.factory(zoterolocal, linked_file_simp)
-    assert isinstance(zobj, zoterosync.ZoteroLinkedFile)
+    zobj = zoterosync.library.ZoteroAttachment.factory(zoterolocal, linked_file_simp)
+    assert isinstance(zobj, zoterosync.library.ZoteroLinkedFile)
 
 
 def test_factory_imported_from_attachment(zoterolocal):
-    zobj = zoterosync.ZoteroAttachment.factory(zoterolocal, imported_file_simp)
-    assert isinstance(zobj, zoterosync.ZoteroImportedFile)
+    zobj = zoterosync.library.ZoteroAttachment.factory(zoterolocal, imported_file_simp)
+    assert isinstance(zobj, zoterosync.library.ZoteroImportedFile)
 
 
 def test_factory_collection(zoterolocal):
-    zobj = zoterosync.ZoteroObject.factory(zoterolocal, coll_simp)
-    assert isinstance(zobj, zoterosync.ZoteroCollection)
+    zobj = zoterosync.library.ZoteroObject.factory(zoterolocal, coll_simp)
+    assert isinstance(zobj, zoterosync.library.ZoteroCollection)
 
 
 def test_factory_collection_from_collection(zoterolocal):
-    zobj = zoterosync.ZoteroCollection.factory(zoterolocal, coll_simp)
-    assert isinstance(zobj, zoterosync.ZoteroCollection)
+    zobj = zoterosync.library.ZoteroCollection.factory(zoterolocal, coll_simp)
+    assert isinstance(zobj, zoterosync.library.ZoteroCollection)
 
 
 def test_fifty_keys_from_set(zoterolocal):

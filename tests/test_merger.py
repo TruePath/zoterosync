@@ -1,10 +1,7 @@
-import zoterosync.merge
 import pytest
-import zoterosync
 import itertools
-import copy
-from zoterosync import Person
-from zoterosync import Creator
+from zoterosync.library import Person
+from zoterosync.library import Creator
 from zoterosync.merge import ZoteroDocumentMerger
 from zoterosync.merge import SimpleZDocMerger
 
@@ -19,12 +16,9 @@ creators_second_data_alt = [{'creatorType': 'editor', 'firstName': 'vlad', 'last
 creators_zero_data = [{'creatorType': 'contributor', 'firstName': 'Robert S', 'lastName': 'cartwright'},
                       {'creatorType': 'contributor', 'firstName': 'Keith D', 'lastName': 'Cooper'}]
 
-creators_fourth_data = [{'creatorType': 'author', 'firstName': 'David M', 'lastName': 'Lane'},
-                        {'creatorType': 'author', 'firstName': 'Matthew', 'lastName': 'Flatt'},
-                        {'creatorType': 'author', 'firstName': 'Matthew', 'lastName': 'Flatt'}]
-
 creators_zero_alt_data = [{'creatorType': 'author', 'firstName': 'Robert', 'lastName': 'Cartwright'},
                           {'creatorType': 'author', 'firstName': 'KD', 'lastName': 'cooper'}]
+
 
 
 @pytest.fixture
@@ -117,6 +111,13 @@ def test_pair_persons(persons_second_with_alt):
     assert merge_gross.firstname == 'Tomas M.'
     assert merge_gross.lastname == 'Gross'
 
+def test_person_merge_nofirsts():
+    per_one = Person(last="Testlast", first="")
+    per_two = Person(last="testlast", first="")
+    per_three = Person(last=" testlast ", first="")
+    merge = Person.merge(per_one, per_two, per_three)
+    assert merge.firstname == ""
+    assert merge.lastname == "Testlast"
 
 def test_doc_merger_creator(empty_doc_merger, creator_challenge):
     zmerge = empty_doc_merger
@@ -158,6 +159,13 @@ def test_doc_merger_creator(empty_doc_merger, creator_challenge):
     assert keith_contrib.firstname == 'Keith D.'
     assert keith_contrib.lastname == 'Cooper'
 
+def test_doc_merger_relations(empty_doc_merger):
+    merged = empty_doc_merger.merge_relations([{'dc:replaces': ['one', 'two']}, {'dc:replaces': ['two', 'three']}])
+    assert merged == {'dc:replaces': ['one', 'two', 'two', 'three']}
+
+def test_doc_merger_relations_with_str(empty_doc_merger):
+    merged = empty_doc_merger.merge_relations([{'dc:replaces': ['one', 'two']}, {'dc:replaces': 'two'}])
+    assert merged == {'dc:replaces': ['one', 'two', 'two']}
 
 def test_real_merge(double_doc_simple_merger):
     zmerge = double_doc_simple_merger

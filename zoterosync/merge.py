@@ -1,7 +1,7 @@
 import functools
 import itertools
-from zoterosync import Person
-from zoterosync import Creator
+from zoterosync.library import Person
+from zoterosync.library import Creator
 import re
 
 
@@ -46,6 +46,8 @@ class DuplicateFinder(object):
 
 
 class ZoteroDocumentMerger(object):
+    """Base class to handle document merging.  Consumers should iterate over interactive_merge.
+       Implementors must override duplicates() to iterate over sets of duplicate documents"""
 
     def __init__(self, library):
         self._library = library
@@ -100,7 +102,8 @@ class ZoteroDocumentMerger(object):
         for v in vals:
             if (v is not None):
                 for rtype in v:
-                    result[rtype] = result.get(rtype, []) + v[rtype]
+                    v_rtype_list = v[rtype] if isinstance(v[rtype], list) else [v[rtype]]
+                    result[rtype] = result.get(rtype, []) + v_rtype_list
         return result
 
     def apply_merge(tuple, result):
@@ -111,9 +114,11 @@ class ZoteroDocumentMerger(object):
             target[pkey] = result[pkey]
 
     def interactive_merge(self):
+        """Generator yields a tuple (tuple_of_docs_to_merge, proposed_merge) and expects either False or a dict
+            specifying the result of the merger to be passed back."""
         self.build_merges()
         for tup in self._merges:
-            result = yield tuple(tup, self._merges[tup])
+            result = yield (tup, self._merges[tup])
             if (result):
                 self.apply_merge(tup, result)
             del self._merges[tup]
@@ -127,7 +132,7 @@ class ZoteroDocumentMerger(object):
             merge = dict()
             self._cur_item_type = self.merge_itemType([i['itemType'] for i in self._to_merge])
             merge["itemType"] = self._cur_item_type
-            for field in itertools.chain(self._library.item_fields[self._cur_item_type], self._library.special_fields):
+            for field in set(itertools.chain(self._library.item_fields[self._cur_item_type], self._library.special_fields)):
                 merge[field] = self.attr_merge(field)
             self._merges[self._to_merge] = merge
 
@@ -165,23 +170,24 @@ class ZoteroDocumentMerger(object):
 
 
 class SimpleZDocMerger(ZoteroDocumentMerger):
+    """Merges documents based on having the same title string ignoring case and punctuation"""
 
-        def __init__(self, library):
-            super().__init__(library)
-            self._buckets = dict()
-            self.find_duplicates()
+    def __init__(self, library):
+        super().__init__(library)
+        self._buckets = dict()
+        self.find_duplicates()
 
-        @staticmethod
-        def build_name_key(string):
-            return re.sub('\W', '', string.casefold())
+    @staticmethod
+    def build_name_key(string):
+        return re.sub('\W', '', string.casefold())
 
-        def find_duplicates(self):
-            for i in self._library.documents:
-                namekey = self.build_name_key(i.title)
-                if (len(namekey) > 3):
-                    if namekey not in self._buckets:
-                        self._buckets[namekey] = set()
-                    self._buckets[namekey].add(i)
+    def find_duplicates(self):
+        for i in self._library.documents:
+            namekey = self.build_name_key(i.title)
+            if (len(namekey) > 3):
+                if namekey not in self._buckets:
+                    self._buckets[namekey] = set()
+                self._buckets[namekey].add(i)
 
-        def duplicates(self):
-            yield from self._buckets.items()
+    def duplicates(self):
+        yield from self._buckets.values()

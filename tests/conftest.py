@@ -239,7 +239,7 @@ class MockPyzotero(object):
 
 @pytest.fixture
 def zoterolocal():
-    return zoterosync.ZoteroLibrary(ZoteroLocal())
+    return zoterosync.library.ZoteroLibrary(ZoteroLocal())
 
 
 @pytest.fixture
@@ -252,28 +252,28 @@ def mock_small():
 
 @pytest.fixture
 def zoteromock_small(mock_small):
-    return zoterosync.ZoteroLibrary(mock_small)
+    return zoterosync.library.ZoteroLibrary(mock_small)
 
 
 @pytest.fixture
 def zoteromock():
     mock = MockPyzotero(item_data, collection_data)
-    return zoterosync.ZoteroLibrary(mock)
+    return zoterosync.library.ZoteroLibrary(mock)
 
 
 @pytest.fixture
 def zoteroremote():
-    return zoterosync.ZoteroLibrary.factory(475425, "")
+    return zoterosync.library.ZoteroLibrary.factory(475425, "")
 
 
 @pytest.fixture
 def zotero_write_remote():
-    return zoterosync.ZoteroLibrary.factory(3661336, "NnfdXD5dmXkCJcGUBDgJTEV9")
+    return zoterosync.library.ZoteroLibrary.factory(3661336, "NnfdXD5dmXkCJcGUBDgJTEV9")
 
 
 @pytest.fixture
 def zotero_double_doc():
-    zot = zoterosync.ZoteroLibrary(ZoteroLocal())
+    zot = zoterosync.library.ZoteroLibrary(ZoteroLocal())
     for i in doc_data:
         zot._recieve_item(i)
     for i in copy.deepcopy(doc_data):

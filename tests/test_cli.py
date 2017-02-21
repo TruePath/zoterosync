@@ -1,5 +1,6 @@
 import pytest
 from zoterosync import script
+from zoterosync.library import ZoteroLibrary
 import click
 from click.testing import CliRunner
 from pathlib import Path
@@ -16,7 +17,12 @@ def test_cli_init():
         assert result.exit_code == 0
         with Path(os.path.abspath('.zoterosync_config')).open(mode='r', encoding='utf8') as conf_file:
             config = json.load(conf_file)
-        assert config == dict(user=57867, apikey='testbalh')
+        assert "user" in config
+        assert "apikey" in config
+        assert "backups" in config
+        assert config["user"] == 57867
+        assert config["apikey"] == 'testbalh'
+        assert config["backups"] == 0
         with Path(os.path.abspath('.zoterosync_library')).open(mode='rb') as lib_file:
             lib = pickle.load(lib_file)
-        assert isinstance(lib, zoterosync.ZoteroLibrary)
+        assert isinstance(lib, ZoteroLibrary)
