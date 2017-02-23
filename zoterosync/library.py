@@ -911,6 +911,13 @@ class ZoteroObject(object):
     def name(self):
         return (self._data["name"] if "name" in self._data else '')
 
+    @property
+    def ancestors(self):
+        if (self.parent):
+            return self.parent.ancestors + [self.parent]
+        else:
+            return []
+
 
 class ZoteroItem(ZoteroObject):
     """Common subclass for Documents and attachments"""
@@ -1269,29 +1276,49 @@ class ZoteroAttachment(ZoteroItem):
         else:
             super()._set_property(pkey, pval)
 
+    def properties(self):
+        yield "md5"
+        yield "sha1"
+        yield "url"
+        yield "filename"
+        yield from super().properties()
+
+    def __getitem__(self, pkey):
+        if (pkey == "md5"):
+            return self.md5
+        elif (pkey == "sha1"):
+            return self.sha1
+        elif (pkey == "url"):
+            return self.url
+        elif (pkey == "filename"):
+            return self.filename
+        else:
+            return super().__getitem__(pkey)
+
     @property
     def link_mode(self):
         return self._data["linkMode"]
 
     @property
     def md5(self):
-        if ("md5" in self._data):
-            return self._data["md5"]
-        else:
-            return None
+            return self._data.get("md5", "")
+
+    @property
+    def sha1(self):
+            return self._data.get("sha1", "")
+
+    @property
+    def url(self):
+            return self._data.get("url", "")
 
     @property
     def filename(self):
-        if (self._data.get("filename", None)):
-            return self._data["filename"]
-        elif (self._data.get("path", None)):
-            return Path(self._data["path"]).name
-        else:
-            return ""
+        return self._data.get("filename", "")
 
     @property
     def name(self):
-        return self.filename if self.filename else ("#" + self.key)
+        effective_filename = self.filename if self.filename else Path(self._data.get("path", "")).name
+        return effective_filename if effective_filename else ("#" + self.key)
 
     def __str__(self):
         return self.link_mode + ": " + self.name
@@ -1339,6 +1366,7 @@ class ZoteroImportedUrl(ZoteroAttachment):
     def name(self):
         return self.url if self.url else ("#" + self.key)
 
+
 class ZoteroCollection(ZoteroObject):
 
     _parent_key = "parentCollection"   # override in inherited classes
@@ -1357,7 +1385,18 @@ class ZoteroCollection(ZoteroObject):
 
     def properties(self):
         yield "children"
+        yield "size"
         yield from super().properties()
+
+    def __getitem__(self, pkey):
+        if (pkey == "size"):
+            return self.size
+        else:
+            return super().__getitem__(pkey)
+
+    @property
+    def size(self):
+        return len(self.members)
 
     @property
     def name(self):

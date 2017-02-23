@@ -4,6 +4,9 @@ from zoterosync.library import ZoteroLibrary
 from zoterosync.library import ZoteroObject
 from zoterosync.library import ZoteroDocument
 from zoterosync.library import ZoteroAttachment
+from zoterosync.library import ZoteroLinkedFile
+from zoterosync.library import ZoteroImportedFile
+from zoterosync.library import ZoteroImportedUrl
 from zoterosync.library import ZoteroCollection
 from zoterosync.library import Creator
 from pathlib import Path
@@ -47,42 +50,106 @@ def style_merge(merge):
     return style_document(m, key_color='magenta', type_color='red')
 
 
-def style_doc_listing(doc, long=False, full=False, key_color='white', value_color='blue', type_color='yellow',
-                      modified_color='magenta', background_color='black'):
-    if (long or full):
-        display_keys = ["title", "creators", "collections", "tags", "children"]
-        if (full):
-            display_keys = iter(doc)
-        output = click.style("@" + doc['itemType'] + "{", fg=type_color, bg=background_color,  bold=True, reset=False)
-        if (doc.dirty):
-            output += click.style(doc["key"] + " (modified)\n", fg=modified_color, bold=True, reset=False)
-        else:
-            output += click.style(doc["key"] + "\n", fg=value_color, bold=True, reset=False)
-        for key in display_keys:
-            if (doc[key]):
-                output += click.style("\t" + key, fg=(modified_color if doc.dirty_key(key) else key_color), reset=False)
-                output += click.style(" = {", fg=key_color, reset=False)
-                sep = ""
-                if (isinstance(doc[key], list)):
-                    output += click.style("[", fg=value_color, reset=False, bold=True)
-                    for member in doc[key]:
-                        output += sep + click.style(str(member), fg=value_color, reset=False)
-                        sep = ", "
-                    output += click.style("]", fg=value_color, reset=False, bold=True)
-                elif (isinstance(doc[key], set)):
-                    for member in doc[key]:
-                        output += sep + click.style(str(member), fg=value_color, reset=False)
-                        sep = ", "
-                else:
-                    output += click.style(str(doc[key]), fg=value_color, reset=False)
-                output += click.style("}\n", fg=key_color, reset=False)
-        output += click.style("}\n", fg=type_color, bold=True, reset=True)
-    else:
+def style_short_doc(doc, key_color='white', value_color='blue', type_color='yellow', modified_color='magenta', background_color='black'):
         output = click.style(doc['key'], fg=(modified_color if doc.dirty else key_color), bg=background_color,  bold=False, reset=False)
         output += click.style(" -- ", fg=value_color,  bold=True, reset=False)
         output += click.style(doc['itemType'], fg=type_color, bold=False, reset=False)
         output += click.style(" -- ", fg=value_color,  bold=True, reset=False)
         output += click.style(doc["title"], fg=value_color, bold=False, reset=True)
+        return output
+
+
+def style_short_attachment(obj, key_color='white', value_color='blue', type_color='yellow', modified_color='magenta', background_color='black'):
+        output = click.style(obj['key'], fg=(modified_color if obj.dirty else key_color), bg=background_color,  bold=False, reset=False)
+        output += click.style(" -- ", fg=value_color,  bold=True, reset=False)
+        output += click.style(obj["linkMode"], fg=type_color, bold=False, reset=False)
+        if (obj.parent):
+            output += click.style(" -- ", fg=value_color,  bold=True, reset=False)
+            output += click.style("parent: ", fg=key_color,  bold=False, reset=False)
+            output += click.style("<", fg=type_color,  bold=True, reset=False)
+            output += click.style(obj.parent['key'], fg=key_color, bg=background_color,  bold=False, reset=False)
+            output += click.style(" - ", fg=value_color,  bold=False, reset=False)
+            output += click.style(obj.parent["title"], fg=value_color, bold=False, reset=True)
+            output += click.style(">", fg=type_color,  bold=True, reset=False)
+        output += click.style(" -- ", fg=value_color,  bold=True, reset=False)
+        output += click.style(obj["url"] if isinstance(obj, ZoteroImportedUrl) else obj["filename"], fg=value_color, bold=False, reset=True)
+        return output
+
+
+def style_short_col(obj, key_color='white', value_color='blue', type_color='yellow', modified_color='magenta', background_color='black'):
+            lineage_str = ""
+            for col in obj.ancestors:
+                lineage_str += col.name + "/"
+            lineage_str += obj.name
+            output = click.style("<<", fg=type_color, bold=True, reset=False)
+            output += click.style(lineage_str, fg=(modified_color if obj.dirty else value_color), bold=True, reset=False)
+            output += click.style(">> ", fg=type_color, bg=background_color,  bold=True, reset=False)
+            output += click.style(" -- ", fg=type_color,  bold=True, reset=False)
+            output += click.style(obj['key'], fg=key_color, bg=background_color,  bold=False, reset=False)
+            output += click.style(" -- ", fg=type_color,  bold=True, reset=False)
+            output += click.style(str(obj['size']) + " members", fg=value_color, bg=background_color,  bold=False, reset=False)
+            return output
+
+
+def style_obj_listing(obj, long=False, full=False, key_color='white', value_color='blue', type_color='yellow',
+                      modified_color='magenta', background_color='black'):
+    if (long or full):
+        if (isinstance(obj, ZoteroDocument)):
+            display_keys = ["title", "creators", "collections", "tags", "children"]
+            output = click.style("@" + obj['itemType'], fg=type_color, bg=background_color,  bold=True, reset=False)
+        elif (isinstance(obj, ZoteroCollection)):
+            display_keys = ["name", "size", "children"]
+            lineage_str = ""
+            for col in obj.ancestors:
+                lineage_str += col.name + "/"
+            lineage_str += obj.name
+            output = click.style("<<", fg=type_color, bold=True, reset=False)
+            output += click.style(lineage_str, fg=value_color, bold=True, reset=False)
+            output += click.style(">> ", fg=type_color, bg=background_color,  bold=True, reset=False)
+        elif (isinstance(obj, ZoteroLinkedFile)):
+            display_keys = ["title", "contentType", "parent", "tags", "url", "path", "md5", "sha1"]
+        elif (isinstance(obj, ZoteroImportedFile)):
+            display_keys = ["title", "contentType", "parent", "tags", "url", "filename", "md5", "sha1"]
+        elif (isinstance(obj, ZoteroImportedUrl)):
+            display_keys = ["title", "contentType", "parent", "tags", "url", "md5", "sha1"]
+        if (isinstance(obj, ZoteroAttachment)):
+            output = click.style("$" + obj["linkMode"], bold=True, reset=False)
+        output += click.style("{", fg=type_color, bg=background_color,  bold=True, reset=False)
+        if (full):
+            display_keys = display_keys + [k for k in obj if k not in display_keys]
+        if (obj.dirty):
+            output += click.style(obj["key"] + " (modified)\n", fg=modified_color, bold=True, reset=False)
+        else:
+            output += click.style(obj["key"] + "\n", fg=key_color, bold=True, reset=False)
+        for key in display_keys:
+            if (obj[key]):
+                output += click.style("\t" + key, fg=(modified_color if obj.dirty_key(key) else key_color), reset=False)
+                output += click.style(" = {", fg=key_color, reset=False)
+                sep = ""
+                if (isinstance(obj[key], list)):
+                    output += click.style("[", fg=value_color, reset=False, bold=True)
+                    for member in obj[key]:
+                        output += sep + click.style(str(member), fg=value_color, reset=False)
+                        sep = ", "
+                    output += click.style("]", fg=value_color, reset=False, bold=True)
+                elif (isinstance(obj[key], set)):
+                    for member in obj[key]:
+                        output += sep + click.style(str(member), fg=value_color, reset=False)
+                        sep = ", "
+                else:
+                    output += click.style(str(obj[key]), fg=value_color, reset=False)
+                output += click.style("}\n", fg=key_color, reset=False)
+        output += click.style("}\n", fg=type_color, bold=True, reset=True)
+    else:
+        if (isinstance(obj, ZoteroDocument)):
+            output = style_short_doc(obj, key_color=key_color, value_color=value_color, type_color=type_color,
+                                     modified_color=modified_color, background_color=background_color)
+        elif (isinstance(obj, ZoteroCollection)):
+            output = style_short_col(obj, key_color=key_color, value_color=value_color, type_color=type_color,
+                                     modified_color=modified_color, background_color=background_color)
+        elif (isinstance(obj, ZoteroAttachment)):
+            output = style_short_attachment(obj, key_color=key_color, value_color=value_color, type_color=type_color,
+                                            modified_color=modified_color, background_color=background_color)
     return output
 
 
@@ -256,6 +323,9 @@ class ZoteroLibraryStore(object):
             elif (isinstance(x, ZoteroCollection)):
                 if (rex.match(x.name) or rex.match("#" + x.key)):
                     return True
+            elif (isinstance(x, ZoteroDocument)):
+                if (rex.match(x.title) or rex.match("#" + x.key)):
+                    return True
             elif (isinstance(x, ZoteroAttachment)):
                 if (rex.match(x.link_mode + "\n" + x.name) or rex.match("#" + x.key)):
                     return True
@@ -271,23 +341,35 @@ class ZoteroLibraryStore(object):
                                         rex.match(str(d[pkey])))}
         return objs
 
-    def list_docs(self, long=False, modified={True, False}, deleted=False, sortby=None, reverse=False, full=False, regexps=None):
+    def list_objects(self, object_type=ZoteroDocument, long=False, modified={True, False}, deleted=False, sortby=None, reverse=False, full=False, regexps=None):
         displayed = 0
-        docs = self.match_objects(ZoteroDocument, modified=modified, deleted=deleted, regexps=regexps)
+        objs = self.match_objects(object_type, modified=modified, deleted=deleted, regexps=regexps)
         output = dict()
-        for doc in docs:
-            if (doc.dirty in modified):
+        for obj in objs:
+            if (obj.dirty in modified):
                 displayed += 1
-                order_key = doc[sortby] if sortby else displayed
-                output[order_key] = output.get(order_key, "") + style_doc_listing(doc, long=long, full=full) + "\n"
+                order_key = obj[sortby] if sortby else displayed
+                output[order_key] = output.get(order_key, "") + style_obj_listing(obj, long=long, full=full) + "\n"
         out = ""
         for i in sorted(output.keys(), reverse=reverse):
             out += output[i]
         click.echo(out)
-        if deleted:
-            click.secho("Displayed {} deleted docs from library with {} non-deleted docs".format(displayed, len(self.library.documents)), bold=True)
-        else:
-            click.secho("Displayed {} docs / {} total (non-deleted) docs".format(displayed, len(self.library.documents)), bold=True)
+        if (object_type == ZoteroDocument):
+            if deleted:
+                click.secho("Displayed {} deleted docs from library with {} non-deleted docs".format(displayed, len(self.library.documents)), bold=True)
+            else:
+                click.secho("Displayed {} docs / {} total (non-deleted) docs".format(displayed, len(self.library.documents)), bold=True)
+        elif (object_type == ZoteroAttachment):
+            if deleted:
+                click.secho("Displayed {} deleted attachments from library with {} non-deleted attachments".format(displayed, len(self.library.attachments)), bold=True)
+            else:
+                click.secho("Displayed {} attachments / {} total (non-deleted) attachments".format(displayed, len(self.library.attachments)), bold=True)
+        elif (object_type == ZoteroCollection):
+            if deleted:
+                click.secho("Displayed {} deleted collections from library with {} non-deleted collections".format(displayed, len(self.library.collections)), bold=True)
+            else:
+                click.secho("Displayed {} collections / {} total (non-deleted) collections".format(displayed, len(self.library.collections)), bold=True)
+ 
 
 
 @click.group()
@@ -363,8 +445,8 @@ def dedup(store):
 @click.option('--itemtype', '--itemType', '-i', default=None, help="regex matching against document['itemType']")
 @click.option('--collection', '-c', default=None, help="regex matching against document['collections'] try against both name and #key")
 @click.option('--tag', default=None, help="regex matching against document['tags']")
-@click.option('--sort', '-s', type=click.Choice(['t', 'T', 'k', 'K', 'i', 'I', 'c', 'C', 'N']),
-              help="Sort by title, key, itemType, cleaned_title (cleaned lowercase title) by passing first letter.  Capitalize to reverse. 'N' reverse without sorting.")
+@click.option('--sort', '-s', type=click.Choice(['t', 'T', 'k', 'K', 'i', 'I', 'c', 'C']),
+              help="Sort by title, key, itemType, cleaned_title (cleaned lowercase title) by passing first letter.  Capitalize to reverse.")
 @click.option('--deleted', '-d', is_flag=True)
 @click.option('--full', '-f', is_flag=True)
 @click.option('--long', '-l', is_flag=True)
@@ -401,4 +483,90 @@ def lsdoc(store, long, show_modified, deleted, sort, full, title, key, creator, 
             sortby = "clean_title"
         if (sort.isupper()):
             reverse = True
-    store.list_docs(long=long, modified=show_modified, deleted=deleted, sortby=sortby, reverse=reverse, full=full, regexps=regex)
+    store.list_objects(object_type=ZoteroDocument, long=long, modified=show_modified, deleted=deleted, sortby=sortby, reverse=reverse, full=full, regexps=regex)
+
+
+@cli.command()
+@click.option('--title', '-t', default=None, help="regex matching against attachment['title']")
+@click.option('--key', '-k', default=None, help="regex matching against attachment['key']")
+@click.option('--filename', default=None, help='regex matching against attachment["filename"]')
+@click.option('--linkmode', '--linkMode', default=None, help="regex matching against attachment['linkMode']")
+@click.option('--parent', '-p', default=None, help='regex matching against attachment["parent"] trying against both title and #key')
+@click.option('--tag', default=None, help="regex matching against attachment['tags']")
+@click.option('--sort', '-s', type=click.Choice(['t', 'T', 'k', 'K', 'l', 'L', 'f', 'F']),
+              help="Sort by title, key, linkMode, filename by passing first letter.  Capitalize to reverse.")
+@click.option('--deleted', '-d', is_flag=True)
+@click.option('--full', '-f', is_flag=True)
+@click.option('--long', '-l', is_flag=True)
+@click.option('--modified', '-m', 'show_modified', flag_value={True})
+@click.option('--unmodified', '-M', 'show_modified', flag_value={False})
+@click.option('--any-modified', 'show_modified', flag_value={True, False}, default=True)
+@click.pass_obj
+def lsattach(store, long, show_modified, deleted, sort, full, title, key, filename, linkmode, parent, tag):
+    sortby = None
+    reverse = False
+    regex = dict()
+    if (title is not None):
+        regex["title"] = title
+    if (key is not None):
+        regex["key"] = key
+    if (filename is not None):
+        regex["filename"] = filename
+    if (linkmode is not None):
+        regex["linkMode"] = linkmode
+    if (parent is not None):
+        regex["parent"] = parent
+    if (tag is not None):
+        regex["tags"] = tag
+    if (sort):
+        if (sort.casefold() == 't'):
+            sortby = "title"
+        elif (sort.casefold() == 'k'):
+            sortby = "key"
+        elif (sort.casefold() == 'l'):
+            sortby = "linkMode"
+        elif (sort.casefold() == 'f'):
+            sortby = "filename"
+        if (sort.isupper()):
+            reverse = True
+    store.list_objects(object_type=ZoteroAttachment, long=long, modified=show_modified, deleted=deleted, sortby=sortby, reverse=reverse, full=full, regexps=regex)
+
+
+@cli.command()
+@click.option('--name', '-n', default=None, help="regex matching against collection['name']")
+@click.option('--key', '-k', default=None, help="regex matching against collection['key']")
+@click.option('--parent', '-p', default=None, help='regex matching against collection["parent"] trying against both name and #key')
+@click.option('--child', default=None, help="regex matching against collection['children'] trying against both name and #key")
+@click.option('--sort', '-s', type=click.Choice(['n', 'N', 'k', 'K', 's', 'S']),
+              help="Sort by name, key, size by passing first letter.  Capitalize to reverse.")
+@click.option('--deleted', '-d', is_flag=True)
+@click.option('--full', '-f', is_flag=True)
+@click.option('--long', '-l', is_flag=True)
+@click.option('--modified', '-m', 'show_modified', flag_value={True})
+@click.option('--unmodified', '-M', 'show_modified', flag_value={False})
+@click.option('--any-modified', 'show_modified', flag_value={True, False}, default=True)
+@click.pass_obj
+def lscol(store, long, show_modified, deleted, sort, full, name, key, parent, child):
+    sortby = None
+    reverse = False
+    regex = dict()
+    if (name is not None):
+        regex["name"] = name
+    if (key is not None):
+        regex["key"] = key
+    if (parent is not None):
+        regex["parent"] = parent
+    if (child is not None):
+        regex["children"] = child
+    if (sort):
+        if (sort.casefold() == 'n'):
+            sortby = "name"
+        elif (sort.casefold() == 'k'):
+            sortby = "key"
+        elif (sort.casefold() == 'i'):
+            sortby = "itemType"
+        elif (sort.casefold() == 's'):
+            sortby = "size"
+        if (sort.isupper()):
+            reverse = True
+    store.list_objects(object_type=ZoteroCollection, long=long, modified=show_modified, deleted=deleted, sortby=sortby, reverse=reverse, full=full, regexps=regex)
