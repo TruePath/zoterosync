@@ -21,6 +21,12 @@ class ScrollSelect(object):
         self.listbox.bind('<<ListboxSelect>>', interior_onselect)
 
 
+class DisplayDocument(object):
+
+    def __init__(self, master, doc):
+        self.master = master
+        
+
 class MergeDisplay(object):
 
     def __init__(self, master, merge_tuple, result):

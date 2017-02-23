@@ -1,23 +1,41 @@
 import os
 import click
 from zoterosync.library import ZoteroLibrary
+from zoterosync.library import ZoteroObject
+from zoterosync.library import ZoteroDocument
+from zoterosync.library import ZoteroAttachment
+from zoterosync.library import ZoteroCollection
+from zoterosync.library import Creator
 from pathlib import Path
 import json
 import pickle
 from shutil import copyfile
 from zoterosync.merge import SimpleZDocMerger
 import logging
+import re
 
 logger = logging.getLogger('zoterosync.cli')
 
 
 def style_document(doc, key_color='blue', value_color='white', type_color='yellow', background_color='black'):
-    output = click.style("@" + doc['itemType'] + "{" + doc["key"] + "\n\n",
-                         fg=type_color, bg=background_color,  bold=True, reset=False)
+    output = click.style("@" + doc['itemType'] + "{", fg=type_color, bg=background_color,  bold=True, reset=False)
+    output += click.style(doc["key"] + "\n", fg=value_color, bold=True, reset=False)
     for key in doc:
-        if (key != "itemType"):
-            output += click.style(key + " = {", fg=key_color, reset=False)
-            output += click.style(str(doc[key]), fg=value_color, reset=False)
+        if (key != "itemType" and doc[key]):
+            output += click.style("\t" + key + " = {", fg=key_color, reset=False)
+            sep = ""
+            if (isinstance(doc[key], list)):
+                output += click.style("[", fg=value_color, reset=False, bold=True)
+                for member in doc[key]:
+                    output += sep + click.style(str(member), fg=value_color, reset=False)
+                    sep = ", "
+                output += click.style("]", fg=value_color, reset=False, bold=True)
+            elif (isinstance(doc[key], set)):
+                for member in doc[key]:
+                    output += sep + click.style(str(member), fg=value_color, reset=False)
+                    sep = ", "
+            else:
+                output += click.style(str(doc[key]), fg=value_color, reset=False)
             output += click.style("}\n", fg=key_color, reset=False)
     output += click.style("}\n", fg=type_color, bold=True, reset=True)
     return output
@@ -27,6 +45,46 @@ def style_merge(merge):
     m = merge.copy()
     m["key"] = "MERGE"
     return style_document(m, key_color='magenta', type_color='red')
+
+
+def style_doc_listing(doc, long=False, full=False, key_color='white', value_color='blue', type_color='yellow',
+                      modified_color='magenta', background_color='black'):
+    if (long or full):
+        display_keys = ["title", "creators", "collections", "tags", "children"]
+        if (full):
+            display_keys = iter(doc)
+        output = click.style("@" + doc['itemType'] + "{", fg=type_color, bg=background_color,  bold=True, reset=False)
+        if (doc.dirty):
+            output += click.style(doc["key"] + " (modified)\n", fg=modified_color, bold=True, reset=False)
+        else:
+            output += click.style(doc["key"] + "\n", fg=value_color, bold=True, reset=False)
+        for key in display_keys:
+            if (doc[key]):
+                output += click.style("\t" + key, fg=(modified_color if doc.dirty_key(key) else key_color), reset=False)
+                output += click.style(" = {", fg=key_color, reset=False)
+                sep = ""
+                if (isinstance(doc[key], list)):
+                    output += click.style("[", fg=value_color, reset=False, bold=True)
+                    for member in doc[key]:
+                        output += sep + click.style(str(member), fg=value_color, reset=False)
+                        sep = ", "
+                    output += click.style("]", fg=value_color, reset=False, bold=True)
+                elif (isinstance(doc[key], set)):
+                    for member in doc[key]:
+                        output += sep + click.style(str(member), fg=value_color, reset=False)
+                        sep = ", "
+                else:
+                    output += click.style(str(doc[key]), fg=value_color, reset=False)
+                output += click.style("}\n", fg=key_color, reset=False)
+        output += click.style("}\n", fg=type_color, bold=True, reset=True)
+    else:
+        output = click.style(doc['key'], fg=(modified_color if doc.dirty else key_color), bg=background_color,  bold=False, reset=False)
+        output += click.style(" -- ", fg=value_color,  bold=True, reset=False)
+        output += click.style(doc['itemType'], fg=type_color, bold=False, reset=False)
+        output += click.style(" -- ", fg=value_color,  bold=True, reset=False)
+        output += click.style(doc["title"], fg=value_color, bold=False, reset=True)
+    return output
+
 
 class ZoteroLibraryStore(object):
 
@@ -63,7 +121,7 @@ class ZoteroLibraryStore(object):
 
     def save(self):
         if self.write_library():
-           return self.write_config()
+            return self.write_config()
         return False
 
     def write_config(self, conf_path=None):
@@ -99,7 +157,7 @@ class ZoteroLibraryStore(object):
         try:
             with self._library_path.open(mode='rb') as lib_file:
                 self.library = pickle.load(lib_file)
-        except (IOError, FileNotFoundError, PermissionError) as e:
+        except (IOError, FileNotFoundError, PermissionError):
             return False
         return True
 
@@ -177,6 +235,60 @@ class ZoteroLibraryStore(object):
             pass
         click.echo("Finished Merge!!")
 
+    def match_objects(self, object_type, modified={True, False}, deleted=False, regexps=None):
+        if (regexps is None):
+            regexps = dict()
+        objs = set()
+        if deleted:
+            objs = {d for d in self.library.deleted_objects if isinstance(d, object_type)}
+        else:
+            if (object_type == ZoteroDocument):
+                objs = self.library.documents
+            elif (object_type == ZoteroAttachment):
+                objs = self.library.attachments
+            elif (object_type == ZoteroCollection):
+                objs = self.library.collections
+        objs = {d for d in objs if d.dirty in modified}
+
+        def filter_func(x):
+            if (isinstance(x, Creator)):
+                return rex.match(x.type + "\n" + x.firstname + " " + x.lastname)
+            elif (isinstance(x, ZoteroCollection)):
+                if (rex.match(x.name) or rex.match("#" + x.key)):
+                    return True
+            elif (isinstance(x, ZoteroAttachment)):
+                if (rex.match(x.link_mode + "\n" + x.name) or rex.match("#" + x.key)):
+                    return True
+            else:
+                return rex.match(str(x))
+
+        def match_element(container):
+            return next(filter(filter_func, container), False)
+
+        for pkey in regexps:
+            rex = re.compile(regexps[pkey])
+            objs = {d for d in objs if (((isinstance(d[pkey], list) or isinstance(d[pkey], set)) and match_element(d[pkey])) or 
+                                        rex.match(str(d[pkey])))}
+        return objs
+
+    def list_docs(self, long=False, modified={True, False}, deleted=False, sortby=None, reverse=False, full=False, regexps=None):
+        displayed = 0
+        docs = self.match_objects(ZoteroDocument, modified=modified, deleted=deleted, regexps=regexps)
+        output = dict()
+        for doc in docs:
+            if (doc.dirty in modified):
+                displayed += 1
+                order_key = doc[sortby] if sortby else displayed
+                output[order_key] = output.get(order_key, "") + style_doc_listing(doc, long=long, full=full) + "\n"
+        out = ""
+        for i in sorted(output.keys(), reverse=reverse):
+            out += output[i]
+        click.echo(out)
+        if deleted:
+            click.secho("Displayed {} deleted docs from library with {} non-deleted docs".format(displayed, len(self.library.documents)), bold=True)
+        else:
+            click.secho("Displayed {} docs / {} total (non-deleted) docs".format(displayed, len(self.library.documents)), bold=True)
+
 
 @click.group()
 @click.option('--config', type=click.Path(), default='.zoterosync_config')
@@ -212,6 +324,7 @@ def pull(store):
 def set_force(ctx, param, value):
     ctx.obj.force = value
 
+
 @cli.command()
 @click.option('--force', is_flag=True, callback=set_force, expose_value=False)
 @click.pass_obj
@@ -231,6 +344,7 @@ def revert(store):
 def backup(store):
     store.backup_library()
 
+
 @cli.command()
 @click.pass_obj
 def dedup(store):
@@ -238,3 +352,53 @@ def dedup(store):
     merger = SimpleZDocMerger(store.library)
     store.term_merger(merger)
     store.save()
+
+
+@cli.command()
+@click.option('--title', '-t', default=None, help="regex matching against document['title']")
+@click.option('--key', '-k', default=None, help="regex matching against document['key']")
+@click.option('--creator', default=None, help='regex matching against creator strings of form: type\\nfirstname lastname')
+@click.option('--child', default=None, help="regex matching against document['children'] where attachment strings have form: " +
+                                                "link_mode\\nname where name is filename if present or #key")
+@click.option('--itemtype', '--itemType', '-i', default=None, help="regex matching against document['itemType']")
+@click.option('--collection', '-c', default=None, help="regex matching against document['collections'] try against both name and #key")
+@click.option('--tag', default=None, help="regex matching against document['tags']")
+@click.option('--sort', '-s', type=click.Choice(['t', 'T', 'k', 'K', 'i', 'I', 'c', 'C', 'N']),
+              help="Sort by title, key, itemType, cleaned_title (cleaned lowercase title) by passing first letter.  Capitalize to reverse. 'N' reverse without sorting.")
+@click.option('--deleted', '-d', is_flag=True)
+@click.option('--full', '-f', is_flag=True)
+@click.option('--long', '-l', is_flag=True)
+@click.option('--modified', '-m', 'show_modified', flag_value={True})
+@click.option('--unmodified', '-M', 'show_modified', flag_value={False})
+@click.option('--any-modified', 'show_modified', flag_value={True, False}, default=True)
+@click.pass_obj
+def lsdoc(store, long, show_modified, deleted, sort, full, title, key, creator, child, itemtype, collection, tag):
+    sortby = None
+    reverse = False
+    regex = dict()
+    if (title is not None):
+        regex["title"] = title
+    if (key is not None):
+        regex["key"] = key
+    if (creator is not None):
+        regex["creators"] = creator
+    if (child is not None):
+        regex["children"] = child
+    if (itemtype is not None):
+        regex["itemType"] = itemtype
+    if (collection is not None):
+        regex["collections"] = collection
+    if (tag is not None):
+        regex["tags"] = tag
+    if (sort):
+        if (sort.casefold() == 't'):
+            sortby = "title"
+        elif (sort.casefold() == 'k'):
+            sortby = "key"
+        elif (sort.casefold() == 'i'):
+            sortby = "itemType"
+        elif (sort.casefold() == 'c'):
+            sortby = "clean_title"
+        if (sort.isupper()):
+            reverse = True
+    store.list_docs(long=long, modified=show_modified, deleted=deleted, sortby=sortby, reverse=reverse, full=full, regexps=regex)

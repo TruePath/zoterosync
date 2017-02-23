@@ -8,6 +8,7 @@ import dateutil.parser
 from functools import wraps
 import functools
 import editdistance
+from pathlib import Path
 
 # create logger
 logger = logging.getLogger('zoterosync.library')
@@ -203,6 +204,9 @@ class Person(object):
     def first_initial(self):
         return self.firstname.strip()[:1].upper()
 
+    def __str__(self):
+        return self.firstname + ' ' + self.lastname
+
 
 class Creator(object):
     """ Captures the creator object
@@ -210,6 +214,9 @@ class Creator(object):
     def __init__(self, d):
         self._type = d["creatorType"]
         self._creator = Person(d.get('lastName', ""), d.get('firstName', ""))
+
+    def __str__(self):
+        return "<" + self._type + ": " + str(self._creator) + ">"
 
     @staticmethod
     def factory(first, last, type):
@@ -382,12 +389,28 @@ class ZoteroLibrary(object):
         return self._documents
 
     @property
+    def deleted_objects(self):
+        return self._deleted_objects
+
+    @property
+    def deleted_documents(self):
+        return {d for d in self._deleted_objects if isinstance(d, ZoteroDocument)}
+
+    @property
     def collections(self):
         return self._collections
 
     @property
+    def deleted_collections(self):
+        return {d for d in self._deleted_objects if isinstance(d, ZoteroCollection)}
+
+    @property
     def attachments(self):
         return self._attachments
+
+    @property
+    def deleted_attachments(self):
+        return {d for d in self._deleted_objects if isinstance(d, ZoteroAttachment)}
 
     def _early_abort(self):
         """If abort flag is set raises EarlyExit
@@ -821,6 +844,15 @@ class ZoteroObject(object):
         except KeyError as e:
             raise InvalidData(dict) from e
 
+    def dirty_key(self, key):
+        if (key in ["children", "collections"]):
+            return False
+        if (self.dirty and key in self._changed_from and (self._data[key] or self._changed_from[key]) and
+                self._data[key] != self._changed_from[key]):
+            return True
+        else:
+            return False
+
     @property
     def dirty(self):
         return self._dirty
@@ -881,6 +913,7 @@ class ZoteroObject(object):
 
 
 class ZoteroItem(ZoteroObject):
+    """Common subclass for Documents and attachments"""
 
     def __init__(self, library, arg):
         self._collections = set()
@@ -959,7 +992,7 @@ class ZoteroItem(ZoteroObject):
         elif (pkey == "creators"):
             self.creators = pval
         else:
-            super().__setitem__(pkey, pval, pval)
+            super().__setitem__(pkey, pval)
 
     def __getitem__(self, pkey):
         if (pkey == "collections"):
@@ -978,6 +1011,8 @@ class ZoteroItem(ZoteroObject):
             return self.date
         elif (pkey == "creators"):
             return self.creators
+        elif (pkey == "clean_title"):
+            return self.clean_title
         else:
             return super().__getitem__(pkey)
 
@@ -997,7 +1032,7 @@ class ZoteroItem(ZoteroObject):
 
     def properties(self):
         yield from (p for p in super().properties() if (
-            p != "dateModified" and p != "itemType" and p != "linkMode" and p != "itemType"))
+            p != "dateModified" and p != "accessDate" and p != "itemType" and p != "linkMode" and p != "itemType"))
 
     def _remove(self, refresh=False):
         if self.deleted:
@@ -1108,6 +1143,10 @@ class ZoteroItem(ZoteroObject):
         self._set_property("title", val)
 
     @property
+    def clean_title(self):
+        return re.sub('\W', '', self.title.casefold())
+
+    @property
     def date_modified(self):
         if ("dateModified" in self._data):
             return dateutil.parser.parse(self._data["dateModified"])
@@ -1148,6 +1187,15 @@ class ZoteroItem(ZoteroObject):
     def type(self):
         return self._data["itemType"]
 
+    @property
+    def url(self):
+        return self._data.get("url", "")
+
+    @url.setter
+    def url(self, val):
+        if (val != self.url):
+            return (self._set_property("url", val))
+
     @type.setter
     def type(self, val):
         return (self._set_property("itemType", val))
@@ -1165,6 +1213,7 @@ class ZoteroItem(ZoteroObject):
 
 
 class ZoteroDocument(ZoteroItem):
+    """Represents a top level document in a zotero library"""
 
     def __init__(self, library, arg):
         super().__init__(library, arg)
@@ -1179,6 +1228,13 @@ class ZoteroDocument(ZoteroItem):
     def properties(self):
         yield "children"
         yield from super().properties()
+
+    @property
+    def name(self):
+        return self.title if self.title else ("#" + self.key)
+
+    def __str__(self):
+        return self.type + ": " + self.name
 
 
 class ZoteroAttachment(ZoteroItem):
@@ -1224,6 +1280,22 @@ class ZoteroAttachment(ZoteroItem):
         else:
             return None
 
+    @property
+    def filename(self):
+        if (self._data.get("filename", None)):
+            return self._data["filename"]
+        elif (self._data.get("path", None)):
+            return Path(self._data["path"]).name
+        else:
+            return ""
+
+    @property
+    def name(self):
+        return self.filename if self.filename else ("#" + self.key)
+
+    def __str__(self):
+        return self.link_mode + ": " + self.name
+
 
 class ZoteroLinkedFile(ZoteroAttachment):
 
@@ -1263,6 +1335,9 @@ class ZoteroImportedUrl(ZoteroAttachment):
         else:
             super()._set_property(pkey, pval)
 
+    @property
+    def name(self):
+        return self.url if self.url else ("#" + self.key)
 
 class ZoteroCollection(ZoteroObject):
 
@@ -1283,3 +1358,14 @@ class ZoteroCollection(ZoteroObject):
     def properties(self):
         yield "children"
         yield from super().properties()
+
+    @property
+    def name(self):
+        return self._data.get("name", "")
+
+    @name.setter
+    def name(self, val):
+        return (self._set_property("name", val))
+
+    def __str__(self):
+        return "<" + (self.name if self.name else ("#" + self.key)) + ">"

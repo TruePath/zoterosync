@@ -62,66 +62,63 @@ def zdoc_refresh_relations(zoterolocal, zdocsimp_keyonly):
 
 
 docsimp = {'data': {
-        'proceedingsTitle': 'Proceedings on Supercomputing',
-        'key': '52JRNN9E',
-        'itemType': 'conferencePaper',
+    'proceedingsTitle': 'Proceedings on Supercomputing',
+    'key': '52JRNN9E',
+    'itemType': 'conferencePaper',
+    'title': 'Global optimization techniques for automatic parallelization of hybrid applications',
+    'version': 1,
+    'creators': [{'creatorType': 'author', 'firstName': 'Dhruva R.', 'lastName': 'Chakrabarti'},
+                 {'creatorType': 'author', 'firstName': 'Prithviraj', 'lastName': 'Banerjee'}],
+    'dateModified': '2016-12-24T02:55:29Z',
+    'dateAdded': '2013-12-25T01:42:47Z',
+}
+}
+
+imported_file_simp = {
+    'data': {
+        'contentType': 'application/pdf',
+        'dateModified': '2016-12-24T02:53:19Z',
+        'key': 'I9873X5Z',
+        'filename': 'On Understanding Types, Data Abstraction, and Polymorphism -- Cardelli & Wegner (1985).pdf',
+        'itemType': 'attachment',
         'title': 'Global optimization techniques for automatic parallelization of hybrid applications',
         'version': 1,
-        'creators': [{'creatorType': 'author', 'firstName': 'Dhruva R.'
-                     , 'lastName': 'Chakrabarti'},
-                     {'creatorType': 'author', 'firstName': 'Prithviraj'
-                     , 'lastName': 'Banerjee'}],
-        'dateModified': '2016-12-24T02:55:29Z',
-        'dateAdded': '2013-12-25T01:42:47Z',
-        }
-      }
-
-imported_file_simp =    {
-        'data': {
-            'contentType': 'application/pdf',
-            'dateModified': '2016-12-24T02:53:19Z',
-            'key': 'I9873X5Z',
-            'filename': 'On Understanding Types, Data Abstraction, and Polymorphism -- Cardelli & Wegner (1985).pdf'
-                ,
-            'itemType': 'attachment',
-            'title': 'Global optimization techniques for automatic parallelization of hybrid applications',
-            'version': 1,
-            'dateAdded': '2016-12-19T11:31:29Z',
-            'linkMode': 'imported_file',
-            'tags': [],
-            'parentItem': '52JRNN9E',
-            'md5': '1d0ffe22bc467a7ed478de8c1656a6e9',
-            },
-        }
+        'dateAdded': '2016-12-19T11:31:29Z',
+        'linkMode': 'imported_file',
+        'tags': [],
+        'parentItem': '52JRNN9E',
+        'md5': '1d0ffe22bc467a7ed478de8c1656a6e9',
+    },
+}
 
 
-linked_file_simp =    {
-        'data': {
-            'contentType': 'application/pdf',
-            'dateModified': '2016-12-24T02:53:19Z',
-            'key': 'I9873X5Z',
-            'filename': 'On Understanding Types, Data Abstraction, and Polymorphism -- Cardelli & Wegner (1985).pdf',
-            'itemType': 'attachment',
-            'path': '/Users/T/L/test.pdf',
-            'title': 'Global optimization techniques for automatic parallelization of hybrid applications',
-            'version': 1,
-            'dateAdded': '2016-12-19T11:31:29Z',
-            'linkMode': 'linked_file',
-            'tags': [],
-            'parentItem': '52JRNN9E',
-            'md5': '1d0ffe22bc467a7ed478de8c1656a6e9',
-            },
-        }
+linked_file_simp = {
+    'data': {
+        'contentType': 'application/pdf',
+        'dateModified': '2016-12-24T02:53:19Z',
+        'key': 'I9873X5Z',
+        'filename': 'On Understanding Types, Data Abstraction, and Polymorphism -- Cardelli & Wegner (1985).pdf',
+        'itemType': 'attachment',
+        'path': '/Users/T/L/test.pdf',
+        'title': 'Global optimization techniques for automatic parallelization of hybrid applications',
+        'version': 1,
+        'dateAdded': '2016-12-19T11:31:29Z',
+        'linkMode': 'linked_file',
+        'tags': [],
+        'parentItem': '52JRNN9E',
+        'md5': '1d0ffe22bc467a7ed478de8c1656a6e9',
+    },
+}
 
-coll_simp =     {
-        "data": {
-            "key": "2QWF3CPM",
-            "version": 3915,
-            "name": "Computer Science",
-            "parentCollection": False,
-            "relations": {}
-        }
+coll_simp = {
+    "data": {
+        "key": "2QWF3CPM",
+        "version": 3915,
+        "name": "Computer Science",
+        "parentCollection": False,
+        "relations": {}
     }
+}
 
 
 def test_createdoc_simp(zoterolocal, zdocsimp):
@@ -133,9 +130,11 @@ def test_createdoc_simp(zoterolocal, zdocsimp):
     assert zdoc.title == 'Global optimization techniques for automatic parallelization of hybrid applications'
     assert zdoc.type == "conferencePaper"
     assert zdoc.version == 1
-    assert zdoc.date_modified == datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
+    assert zdoc.date_modified == datetime.datetime(
+        2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
     assert zdoc.dirty is False
-    assert zdoc.date_added == datetime.datetime(2013, 12, 25, 1, 42, 47, tzinfo=datetime.timezone.utc)
+    assert zdoc.date_added == datetime.datetime(
+        2013, 12, 25, 1, 42, 47, tzinfo=datetime.timezone.utc)
     assert zdoc['parent'] is None
     assert zdoc['title'] == zdoc.title
     assert zdoc.date_modified == zdoc["dateModified"]
@@ -171,9 +170,11 @@ def test_refreshcreatedoc_simp(zoterolocal):
     assert zdoc.title == 'Global optimization techniques for automatic parallelization of hybrid applications'
     assert zdoc.type == "conferencePaper"
     assert zdoc.version == 1
-    assert zdoc.date_modified == datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
+    assert zdoc.date_modified == datetime.datetime(
+        2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
     assert zdoc.dirty is False
-    assert zdoc.date_added == datetime.datetime(2013, 12, 25, 1, 42, 47, tzinfo=datetime.timezone.utc)
+    assert zdoc.date_added == datetime.datetime(
+        2013, 12, 25, 1, 42, 47, tzinfo=datetime.timezone.utc)
     assert len(zdoc._changed_from) == 0
     assert zdoc['parent'] is None
     assert zdoc['title'] == zdoc.title
@@ -201,7 +202,8 @@ def test_refreshcreatedoc_simp(zoterolocal):
 def test_modifydoc_simp(zdocsimp):
     zdoc = zdocsimp
     zdoc.title = "new title"
-    zdoc.date_added = datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
+    zdoc.date_added = datetime.datetime(
+        2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
     with pytest.raises(zoterosync.library.InvalidProperty):
         zdoc.type = "BSTYPE"
     zdoc.type = "bookSection"
@@ -211,11 +213,14 @@ def test_modifydoc_simp(zdocsimp):
     assert zdoc.version == 1
     assert zdoc.date == "2001"
     assert zdoc.type == "bookSection"
-    assert zdoc.date_added == datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
+    assert zdoc.date_added == datetime.datetime(
+        2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
     assert zdoc._data["dateAdded"] == '2016-12-24T02:55:29Z'
     assert zdoc.dirty is True
-    assert zdoc.date_modified > datetime.datetime(2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
-    assert zdoc._changed_from["title"] == 'Global optimization techniques for automatic parallelization of hybrid applications'
+    assert zdoc.date_modified > datetime.datetime(
+        2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
+    assert zdoc._changed_from[
+        "title"] == 'Global optimization techniques for automatic parallelization of hybrid applications'
     assert zdoc._changed_from["dateAdded"] == '2013-12-25T01:42:47Z'
     assert "dateModified" not in zdoc._changed_from
     assert zdoc._changed_from["date"] is None
@@ -346,7 +351,8 @@ def test_modify_tags(zoterolocal, zdoc_tags):
     assert len(zdoc._changed_from["tags"]) == 2
     tone = zdoc._changed_from["tags"][0]["tag"]
     ttwo = zdoc._changed_from["tags"][1]["tag"]
-    assert ((tone == "test" and ttwo == 'parallel') or (ttwo == "test" and tone == 'parallel'))
+    assert ((tone == "test" and ttwo == 'parallel') or (
+        ttwo == "test" and tone == 'parallel'))
 
 
 def test_del_tags(zoterolocal, zdoc_tags):
@@ -360,27 +366,33 @@ def test_del_tags(zoterolocal, zdoc_tags):
     assert len(zdoc._changed_from["tags"]) == 2
     tone = zdoc._changed_from["tags"][0]["tag"]
     ttwo = zdoc._changed_from["tags"][1]["tag"]
-    assert ((tone == "test" and ttwo == 'parallel') or (ttwo == "test" and tone == 'parallel'))
+    assert ((tone == "test" and ttwo == 'parallel') or (
+        ttwo == "test" and tone == 'parallel'))
 
 
 def test_create_relations(zoterolocal, zdoc_relations):
     zdoc = zdoc_relations
     assert 'relations' in zdoc
-    assert zdoc["relations"] == {'dc:replaces': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
+    assert zdoc["relations"] == {
+        'dc:replaces': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
 
 
 def test_refresh_create_relations(zoterolocal, zdoc_refresh_relations):
     zdoc = zdoc_refresh_relations
     assert 'relations' in zdoc
-    assert zdoc["relations"] == {'dc:replaces': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
+    assert zdoc["relations"] == {
+        'dc:replaces': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
 
 
 def test_modify_relations(zoterolocal, zdoc_relations):
     zdoc = zdoc_relations
-    zdoc["relations"] = {'dc:fred': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
-    assert zdoc["relations"] == {'dc:fred': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
+    zdoc["relations"] = {
+        'dc:fred': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
+    assert zdoc["relations"] == {
+        'dc:fred': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
     assert zdoc.dirty is True
-    assert zdoc._changed_from["relations"] == {'dc:replaces': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
+    assert zdoc._changed_from["relations"] == {
+        'dc:replaces': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
 
 
 def test_del_relations(zoterolocal, zdoc_relations):
@@ -388,7 +400,8 @@ def test_del_relations(zoterolocal, zdoc_relations):
     del zdoc["relations"]
     assert zdoc["relations"] == dict()
     assert zdoc.dirty is True
-    assert zdoc._changed_from["relations"] == {'dc:replaces': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
+    assert zdoc._changed_from["relations"] == {
+        'dc:replaces': ['url1', 'url2'], 'dc:bs': ['test1', 'test2']}
 
 
 def test_factory_document(zoterolocal):
@@ -407,22 +420,26 @@ def test_factory_document_from_item(zoterolocal):
 
 
 def test_factory_linked(zoterolocal):
-    zobj = zoterosync.library.ZoteroObject.factory(zoterolocal, linked_file_simp)
+    zobj = zoterosync.library.ZoteroObject.factory(
+        zoterolocal, linked_file_simp)
     assert isinstance(zobj, zoterosync.library.ZoteroLinkedFile)
 
 
 def test_factory_imported(zoterolocal):
-    zobj = zoterosync.library.ZoteroObject.factory(zoterolocal, imported_file_simp)
+    zobj = zoterosync.library.ZoteroObject.factory(
+        zoterolocal, imported_file_simp)
     assert isinstance(zobj, zoterosync.library.ZoteroImportedFile)
 
 
 def test_factory_linked_from_attachment(zoterolocal):
-    zobj = zoterosync.library.ZoteroAttachment.factory(zoterolocal, linked_file_simp)
+    zobj = zoterosync.library.ZoteroAttachment.factory(
+        zoterolocal, linked_file_simp)
     assert isinstance(zobj, zoterosync.library.ZoteroLinkedFile)
 
 
 def test_factory_imported_from_attachment(zoterolocal):
-    zobj = zoterosync.library.ZoteroAttachment.factory(zoterolocal, imported_file_simp)
+    zobj = zoterosync.library.ZoteroAttachment.factory(
+        zoterolocal, imported_file_simp)
     assert isinstance(zobj, zoterosync.library.ZoteroImportedFile)
 
 
@@ -468,7 +485,8 @@ def test_mock_small(zoteromock_small):
     assert len(lib._collkeys_for_refresh) == 0
     assert lib.num_items == 5
     assert lib.num_collections == 20
-    assert int(lib._server.request.headers.get('last-modified-version', 0)) == 4030
+    assert int(lib._server.request.headers.get(
+        'last-modified-version', 0)) == 4030
     assert lib._version == 4030
 
 

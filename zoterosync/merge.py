@@ -106,7 +106,7 @@ class ZoteroDocumentMerger(object):
                     result[rtype] = result.get(rtype, []) + v_rtype_list
         return result
 
-    def apply_merge(tuple, result):
+    def apply_merge(self, tuple, result):
         target = next(filter(lambda x: x.type == result['itemType'], tuple))
         for i in (i for i in tuple if i != target):
             i.delete()
@@ -121,7 +121,7 @@ class ZoteroDocumentMerger(object):
             result = yield (tup, self._merges[tup])
             if (result):
                 self.apply_merge(tup, result)
-            del self._merges[tup]
+        self._merges = dict()
 
     def duplicates(self):
         pass
