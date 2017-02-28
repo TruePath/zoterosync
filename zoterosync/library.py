@@ -1,4 +1,6 @@
 from pyzotero import zotero
+from pyzotero.zotero_errors import PreConditionFailed
+from pyzotero.zotero_errors import PyZoteroError
 import re
 import random
 import copy
@@ -7,6 +9,7 @@ import datetime
 import dateutil.parser
 from functools import wraps
 import functools
+import itertools
 import editdistance
 from pathlib import Path
 
@@ -47,6 +50,26 @@ class ZoteroLibraryError(Exception):
     """ Generic parent exception
     """
     pass
+
+
+class SyncError(ZoteroLibraryError):
+    """ Generic parent exception for sync failures, i.e., anything failing on the network """
+    pass
+
+
+class StaleLocalData(SyncError):
+    """ Exception raised when local data must be refreshed before changes can be made on server """
+    pass
+
+
+class UpdateRejected(SyncError):
+    """ Exception raised when server rejects our update """
+    def __init__(self, msg="Update Rejected", response=None):
+        self.response = response
+        self.msg = msg
+
+    def __str__(self):
+        return (self.msg + "\nRESPONSE:\n" + self.response.__str__())
 
 
 class ConsistencyError(ZoteroLibraryError):
@@ -375,12 +398,15 @@ class ZoteroLibrary(object):
         self._objects_by_key = dict()
         self._dirty_objects = set()
         self._deleted_objects = set()
+        self._new_objects = set()
         self._tags = dict()
         self._version = None
         self._collkeys_for_refresh = set()
         self._itemkeys_for_refresh = set()
         self._next_version = None
         self.abort = False
+        self.dry_run = False
+        self.checkpoint_function = None
         self._revert = False
         logger.debug("Initialize ZoteroLibrary")
 
@@ -411,6 +437,14 @@ class ZoteroLibrary(object):
     @property
     def deleted_attachments(self):
         return {d for d in self._deleted_objects if isinstance(d, ZoteroAttachment)}
+
+    def _checkpoint(self):
+        logger.info("-- Checkpoint Requested --")
+        if (self.checkpoint_function is not None):
+            return self.checkpoint_function()
+            logger.info("-- Checkpoint Saved --")
+        else:
+            return True
 
     def _early_abort(self):
         """If abort flag is set raises EarlyExit
@@ -463,6 +497,205 @@ class ZoteroLibrary(object):
         logger.info("\tItems Remaining For Refresh: %s\n\tCollections Remaining For Refresh: %s",
                     len(self._itemkeys_for_refresh), len(self._collkeys_for_refresh))
 
+    def push(self, nested=0):
+        try:
+            try:
+                logger.info("---- Initiating Push Request ----\n\tFrom Version: %s", self._version)
+                logger.info("Library Contains:\n\tCollections: %s\n\tDocuments: %s\n\tAttachments: %s\n\tTotal Objects: %s\n\tDirty Objects: %s\n\tNew Objects: %s\n\tDeleted Obects: %s",
+                        len(self._collections), len(self._documents), len(self._attachments), len(self._objects_by_key), len(self._dirty_objects), len(self._new_objects), len(self._deleted_objects))
+                self._push_deleted()
+                self._push_updates()
+                logger.info("---- Finished Pull Request ----\n\tAt Version: %s", self._version)
+            except (PreConditionFailed, StaleLocalData) as e:
+                if (nested < 4):
+                    logger.info("-- Local Data Stale Initiating Pull --")
+                    self.pull()
+                    logger.info("-- Reinitiating Push --")
+                    self.push(nested=(nested + 1))
+                else:
+                    raise SyncError from e
+        except PyZoteroError as e:
+            raise SyncError from e
+        logger.info("---- Finished Push Request ----\n\tAt Version: %s", self._version)
+
+    def _new_items_creation_order(self):
+        """ Returns a list of the new objects so that objects always occur before children """
+        def append_zobj(list, zobj):
+            if zobj in list:
+                return list
+            elif (zobj.parent in self._new_objects):
+                return append_zobj(list, zobj.parent) + [zobj]
+            else:
+                return list + [zobj]
+        result = []
+        for obj in self._new_objects:
+            result = append_zobj(result, zobj)
+        return result
+
+    def _push_updates(self):
+        """ Sends changes (new items and changed items) to server """
+        updates = self._new_items_creation_order() + list(self._dirty_objects)
+        logger.info("-- Updating Objects on Server --")
+        logger.info("\t Creating %s objects.  Updating %s objects", len(self._new_objects), len(self._dirty_objects))
+        batch_dirty_collections = []
+        batch_dirty_items = []
+        cur_collections = []
+        cur_items = []
+        num_items = 0
+        num_collections = 0
+        for obj in updates:
+            if (isinstance(obj, ZoteroItem)):
+                num_items += 1
+                cur_items.append(obj)
+                if (len(cur_items) > 49):
+                    batch_dirty_items.append(cur_items)
+                    cur_items = []
+            elif (isinstance(obj, ZoteroCollection)):
+                num_collections += 1
+                cur_collections.append(obj)
+                if (len(cur_collections) > 49):
+                    batch_dirty_collections.append(cur_collections)
+                    cur_collections = []
+            else:
+                raise ConsistencyError("Only Collections and Items Supported Currently")
+        if (len(cur_collections) > 0):
+            batch_dirty_collections.append(cur_collections)
+        if (len(cur_items) > 0):
+            batch_dirty_items.append(cur_items)
+        logger.info("\t %s Items in %s Batches and %s Collections in %s Batches Queued For Update",
+                    num_items, len(batch_dirty_items), num_collections, len(batch_dirty_collections))
+        for batch in batch_dirty_collections:
+            self._server_update_collections(batch)
+        for batch in batch_dirty_items:
+            self._server_update_items(batch)
+        if (len(self._dirty_objects) > 0 or len(self._new_objects) > 0):
+            raise ConsistencyError("All Dirty Objects Should Have Been Processed")
+        logger.info("-- Updates Succesfully Processed --")
+
+    def _process_update_response(self, resp):
+        """ Handles the server response from an update request """
+        for obj in resp["success"].values():
+            self._objects_by_key[obj].dirty = False
+        for obj in resp["unchanged"].values():
+            self._objects_by_key[obj].dirty = False
+        self._checkpoint()
+        if (len(resp["failed"]) > 0):
+            if (int(next(iter(resp["failed"].values())).get("code", None)) == 412):
+                raise StaleLocalData
+            else:
+                raise UpdateRejected
+        else:
+            logger.info("\tUpdate Succeeded")
+            self._version = int(self._server.request.headers.get('last-modified-version', 0))
+            self._next_version = None
+            return True
+
+    def _server_update_items(self, items):
+        """Takes a list of at most 50 items and updates them on server updating version info"""
+        keylist = functools.reduce(lambda x, y: x + y['key'] + ',', items, "")
+        keylist = keylist[:-1]  # drop final ,
+        logger.info("\tUPDATE ITEM REQUEST: version: %s items: %s", self._version, keylist)
+        payload = [i.modified_data for i in items]
+        if (self.dry_run):
+            print("Calling create_items with version {} and items {}".format(self._version, keylist))
+            return True
+        else:
+            resp = self._server.create_items(payload, last_modified=self._version)
+            self._process_update_response(resp)
+        return True
+
+    def _server_update_collections(self, cols):
+        """Takes a list of at most 50 items and updates them on server updating version info"""
+        keylist = functools.reduce(lambda x, y: x + y['key'] + ',', cols, "")
+        keylist = keylist[:-1]  # drop final ,
+        logger.info("\tUPDATE COLLECTION REQUEST: version: %s collections: %s", self._version, keylist)
+        payload = [i.modified_data for i in cols]
+        if (self.dry_run):
+            print("Calling create_collections with version {} and items {}".format(self._version, keylist))
+            return True
+        else:
+            resp = self._server.create_collectionss(payload, last_modified=self._version)
+            self._process_update_response(resp)
+        return True
+
+    def _server_delete_items(self, items):
+        """Takes a list of at most 50 items and deletes them on server updating version info"""
+        keylist = functools.reduce(lambda x, y: x + y['key'] + ',', items, "")
+        keylist = keylist[:-1]  # drop final ,
+        logger.info("\tDELETE ITEM REQUEST: version: %s items: %s", self._version, keylist)
+        if (self.dry_run):
+            print("Calling delete_item with version {} and items {}".format(self._version, keylist))
+            return True
+        else:
+            rval = self._server.delete_item(items, last_modified=self._version)
+        if (rval):
+            self._version = int(self._server.request.headers.get('last-modified-version', 0))
+            self._next_version = None
+            for i in items:
+                i.dirty = False
+            self._checkpoint()
+        else:
+            raise Exception("Unreachable as delete_item currently returns true or throws exception")
+        return True
+
+    def _server_delete_collections(self, cols):
+        """Takes a list of at most 50 collections and deletes them on server updating version info"""
+        keylist = functools.reduce(lambda x, y: x + y['key'] + ',', cols, "")
+        keylist = keylist[:-1]  # drop final ,
+        logger.info("\tDELETE COLLECTION REQUEST: version: %s collections: %s", self._version, keylist)
+        if (self.dry_run):
+            print("Calling delete_collection with version {} and collections {}".format(self._version, keylist))
+            return True
+        else:
+            rval = self._server.delete_collection(items, last_modified=self._version)
+        if (rval):
+            self._version = int(self._server.request.headers.get('last-modified-version', 0))
+            self._next_version = None
+            for i in items:
+                i.dirty = False
+            self._checkpoint()
+        else:
+            raise Exception("Unreachable as delete_collection currently returns true or throws exception")
+        return True
+
+    def _push_deleted(self):
+        logger.info("-- Deleting Objects on Server --")
+        batch_deleted_collections = []
+        batch_deleted_items = []
+        cur_collections = []
+        cur_items = []
+        num_items = 0
+        num_collections = 0
+        for obj in self._deleted_objects:
+            if (isinstance(obj, ZoteroItem)):
+                num_items += 1
+                cur_items.append(obj)
+                if (len(cur_items) > 49):
+                    batch_deleted_items.append(cur_items)
+                    cur_items = []
+            elif (isinstance(obj, ZoteroCollection)):
+                num_collections += 1
+                cur_collections.append(obj)
+                if (len(cur_collections) > 49):
+                    batch_deleted_collections.append(cur_collections)
+                    cur_collections = []
+            else:
+                raise ConsistencyError("Only Collections and Items Supported Currently")
+        if (len(cur_collections) > 0):
+            batch_deleted_collections.append(cur_collections)
+        if (len(cur_items) > 0):
+            batch_deleted_items.append(cur_items)
+        logger.info("\t %s Items in %s Batches and %s Collections in %s Batches Queued For Deletion",
+                    num_items, len(batch_deleted_items), num_collections, len(batch_deleted_collections))
+        for batch in batch_deleted_items:
+            self._server_delete_items(batch)
+        for batch in batch_deleted_collections:
+            self._server_delete_collections(batch)
+        if (len(self._deleted_objects) > 0):
+            raise ConsistencyError("All Local Deletes Should Have Been Processed")
+        logger.info("-- Local Deletions Succesfully Processed --")
+
+
     @staticmethod
     def _fifty_keys_from_set(set):
         idstring = ""
@@ -505,6 +738,8 @@ class ZoteroLibrary(object):
 
     def mark_clean(self, obj):
         self._dirty_objects.discard(obj)
+        self._new_objects.discard(obj)
+        self._deleted_objects.discard(obj)
 
     def _remove(self, obj):
         """ Removes an object from all containers obj._remove is responsible for removing the relations
@@ -684,6 +919,7 @@ class ZoteroObject(object):
     def __init__(self, library, arg):
         self._library = library
         self._dirty = False
+        self.new = False
         self._deleted = False
         self._parent = None
         self._children = set()
@@ -723,7 +959,11 @@ class ZoteroObject(object):
         if (k not in self._changed_from):
             self._register_property(k, val)
         else:
-            self._changed_from[k] = val
+            if ((k in self._data and (((k == "collections" or k == "tags") and set(self._data[k]) == set(val)) or self._data[k] == val)) or
+                ((not self._data.get(k, False)) and (not val))): 
+                del self._changed_from[k]
+            else:
+                self._changed_from[k] = val
 
     def _register_property(self, pkey, pval):
         # logger.debug("called _register_property in ZoteroObject with pkey=%s and pval=%s", pkey, pval)
@@ -865,6 +1105,8 @@ class ZoteroObject(object):
             self._library.mark_dirty(self)
         else:
             self._dirty = False
+            self.new = False
+            self._changed_from = dict()
             self._library.mark_clean(self)
 
     @property
@@ -917,6 +1159,22 @@ class ZoteroObject(object):
             return self.parent.ancestors + [self.parent]
         else:
             return []
+
+    @property
+    def data(self):
+        return self._data.copy()
+    
+    @property
+    def modified_data(self):
+        if self.new:
+            return self._data
+        modified = dict()
+        modified["version"] = self._data["version"]
+        modified["key"] = self._data["key"]
+        if (self.dirty):
+            for k in self._changed_from:
+                modified[k] = self._data[k]
+        return modified
 
 
 class ZoteroItem(ZoteroObject):
@@ -1169,15 +1427,18 @@ class ZoteroItem(ZoteroObject):
 
     @date_added.setter
     def date_added(self, val):
-        if (val is None):
-            self._set_property("dateAdded", '')
-            return None
-        if (isinstance(val, datetime.datetime)):
-            dt = val
-        else:
-            dt = dateutil.parser.parse(val)
-        self._set_property("dateAdded", dt.replace(tzinfo=None).isoformat("T") + "Z")
-        return dt
+        """Should update the date_added value but zotero servers don't support editing this so does nothing"""
+
+        return self.date_added
+        # if (val is None):
+        #     self._set_property("dateAdded", '')
+        #     return None
+        # if (isinstance(val, datetime.datetime)):
+        #     dt = val
+        # else:
+        #     dt = dateutil.parser.parse(val)
+        # self._set_property("dateAdded", dt.replace(tzinfo=None).isoformat("T") + "Z")
+        # return dt
 
     @property
     def date(self):

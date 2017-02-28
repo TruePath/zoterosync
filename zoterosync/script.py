@@ -204,6 +204,7 @@ class ZoteroLibraryStore(object):
         self.library = ZoteroLibrary.factory(self.user, self.apikey)
         self.dirty = True
         self.dangerous = True
+        self.library.checkpoint_function = self.save
         logger.info("Initialized Library")
 
     def write_library(self, dest=None):
@@ -224,6 +225,7 @@ class ZoteroLibraryStore(object):
         try:
             with self._library_path.open(mode='rb') as lib_file:
                 self.library = pickle.load(lib_file)
+                self.library.checkpoint_function = self.save
         except (IOError, FileNotFoundError, PermissionError):
             return False
         return True

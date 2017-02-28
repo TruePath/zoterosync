@@ -213,15 +213,15 @@ def test_modifydoc_simp(zdocsimp):
     assert zdoc.version == 1
     assert zdoc.date == "2001"
     assert zdoc.type == "bookSection"
-    assert zdoc.date_added == datetime.datetime(
-        2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
-    assert zdoc._data["dateAdded"] == '2016-12-24T02:55:29Z'
+    # assert zdoc.date_added == datetime.datetime(
+    #     2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
+    assert zdoc._data["dateAdded"] == '2013-12-25T01:42:47Z' # should remain unmodified '2016-12-24T02:55:29Z'
     assert zdoc.dirty is True
     assert zdoc.date_modified > datetime.datetime(
         2016, 12, 24, 2, 55, 29, tzinfo=datetime.timezone.utc)
     assert zdoc._changed_from[
         "title"] == 'Global optimization techniques for automatic parallelization of hybrid applications'
-    assert zdoc._changed_from["dateAdded"] == '2013-12-25T01:42:47Z'
+    assert "dateAdded" not in zdoc._changed_from
     assert "dateModified" not in zdoc._changed_from
     assert zdoc._changed_from["date"] is None
     assert zdoc._changed_from['itemType'] == "conferencePaper"
@@ -236,6 +236,12 @@ def test_modifydoc_simp(zdocsimp):
     assert "date" in zdoc
     assert "dateModified" not in zdoc
     assert "dateAdded" in zdoc
+    modified_data = {'version': zdoc['version'], 
+                     'key': zdoc['key'],
+                     'title': "new title",
+                     'itemType': "bookSection",
+                     "date": "2001"}
+    assert zdoc.modified_data == modified_data
 
 
 def test_register_new_collection(zoterolocal):
