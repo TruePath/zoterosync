@@ -12,6 +12,7 @@ import functools
 import itertools
 import editdistance
 from pathlib import Path
+from nameparser import HumanName
 
 # create logger
 logger = logging.getLogger('zoterosync.library')
@@ -55,7 +56,6 @@ class ZoteroLibraryError(Exception):
 class SyncError(ZoteroLibraryError):
     """ Generic parent exception for sync failures, i.e., anything failing on the network """
     pass
-
 
 class StaleLocalData(SyncError):
     """ Exception raised when local data must be refreshed before changes can be made on server """
@@ -110,9 +110,28 @@ class Person(object):
         self._lastname = last
         self._firstname = first
 
+    @staticmethod
+    def parsename(name):
+        parsed = HumanName(name)
+        parsed.capitalize()
+        first = "{title} {first} {middle}".format(**parsed.as_dict()).strip()
+        last = "{last} {suffix}".format(**parsed.as_dict()).strip()
+        if (last == ""):
+            last = first
+            first = ""
+        return Person(last=last, first=first)
+
+    @property
+    def first(self):
+        return self.firstname
+    
     @property
     def firstname(self):
         return self._firstname
+
+    @property
+    def last(self):
+        return self.lastname
 
     @property
     def lastname(self):
@@ -138,10 +157,8 @@ class Person(object):
                 return True
         return False
 
-    def first_initial_only(self):
-        if (re.match('\A\w([ .]|\Z)', self.firstname.strip()) or
-            (len(self.firstname.strip()) == 2 and self.firstname.strip().isalpha() and
-                self.firstname.strip().isupper())):
+    def first_initials_only(self):
+        if (re.match('\A(\s*\w([ .]|\Z)\s*\.?){1,3}\s*\Z', self.firstname.strip()) or re.match('\A\s*[A-Z]\s*[A-Z]\s*\.?\s*\Z', self.firstname.strip())):
             return True
         else:
             return False
@@ -165,11 +182,13 @@ class Person(object):
         lastname = self.lastname
         firstname = re.sub('[^\w.\s]', '', firstname.strip())
         firstname = firstname.replace('  ', ' ')
-        firstname = re.sub('[ ]\.', '.', firstname)
+        firstname = re.sub('[\s]*\.', '.', firstname)
         firstname = firstname[:1].upper() + firstname[1:]
-        firstname = re.sub('(\A|\s|\.)(\w)(\s|\Z)(?!\s*\.)', "\\1\\2.\\3", firstname)
-        if (self.first_initial_only()):
-            firstname = re.sub('\A(\w)(\w)\.?\Z', "\\1.\\2.", firstname)
+        firstname = re.sub('(?<!\w)(\w)(?![\w.])', "\\1.", firstname)  # Put periods after isolated letters
+        if (re.match('\A\s*[A-Z]\s*[A-Z]\s*\.?\s*\Z', self.firstname)):
+            firstname = re.sub('\A\s*([A-Z])\s*([A-Z])\s*\.?\s*\Z', "\\1.\\2.", firstname)  # If firstname just two chars put periods after each
+        if self.first_initials_only():
+            firstname = re.sub(' ', '', firstname)  # if only initials drop spaces
         firstname = firstname.replace('..', '.')
         lastname = re.sub('[^\w\s]', '', lastname.strip())
         lastname = lastname.replace('  ', ' ')
@@ -177,6 +196,7 @@ class Person(object):
 
     @staticmethod
     def merge(*people):
+        logger.debug("Called Person.merge with args %s", str(people))
         if (len(people) == 0):
             return Person('', '')
         people = [p.clean() for p in people]
@@ -193,12 +213,13 @@ class Person(object):
                 counts[p.first_initial] = counts.get(p.first_initial, 0) + 1
         best_first = ""
         if (len(counts) > 0):
-            first_ini = functools.reduce(lambda x, y: y if counts[y] > counts[x] else x, counts)
+            first_ini = functools.reduce(lambda x, y: y if counts[y] > counts[x] else x, counts, next(iter(counts)))
+            logger.debug("Called Person.merge gave first_ini: %s", first_ini)
             people = [p for p in people if p.first_initial == first_ini]
             counts = dict()
             for p in people:
                 first = re.split('[\s.]', p.firstname, 1)[0].casefold()
-                if (len(first) > 1 and not (len(p.firstname) == 2 and p.firstname.isupper() and p.firstname.isalpha())):  # test for two cap chars being initial
+                if (first):
                     counts[first] = counts.get(first, 0) + 1
             if (len(counts) > 0):
                 first = functools.reduce(lambda x, y: y if counts[y] > counts[x] else x, counts)
@@ -218,7 +239,7 @@ class Person(object):
 
     @property
     def fullname(self):
-        return "{0} {1}".format(self.firstname, self.lastname)
+        return "{0} {1}".format(self.firstname, self.lastname).strip()
 
     def copy(self):
         return Person(self.lastname, self.firstname)
@@ -230,16 +251,36 @@ class Person(object):
     def __str__(self):
         return self.firstname + ' ' + self.lastname
 
+    def __repr__(self):
+        return repr({'firstName':self.firstname, 'lastName':self.lastname})
+
+    def __bool__(self):
+        if (self.lastname or self.firstname):
+            return True
+        else:
+            return False
+
 
 class Creator(object):
     """ Captures the creator object
     """
     def __init__(self, d):
         self._type = d["creatorType"]
-        self._creator = Person(d.get('lastName', ""), d.get('firstName', ""))
+        if ("name" in d and "lastName" not in d):
+            logger.debug("Creator built with name property")
+            self._creator = Person.parsename(d["name"])
+        else:
+            self._creator = Person(d.get('lastName', ""), d.get('firstName', ""))
 
     def __str__(self):
         return "<" + self._type + ": " + str(self._creator) + ">"
+
+    def __repr__(self):
+        return repr(self.to_dict())
+
+    def clean(self):
+        per = self._creator.clean()
+        return Creator(dict(creatorType=self.type, lastName=per.lastname, firstName=per.firstname))
 
     @staticmethod
     def factory(first, last, type):
@@ -279,6 +320,10 @@ class Creator(object):
     @property
     def firstname(self):
         return self.creator.firstname
+
+    @property
+    def fullname(self):
+        return self._creator.fullname
 
     def first_initial_only(self):
         return self.creator.first_initial_only()
@@ -503,9 +548,9 @@ class ZoteroLibrary(object):
                 logger.info("---- Initiating Push Request ----\n\tFrom Version: %s", self._version)
                 logger.info("Library Contains:\n\tCollections: %s\n\tDocuments: %s\n\tAttachments: %s\n\tTotal Objects: %s\n\tDirty Objects: %s\n\tNew Objects: %s\n\tDeleted Obects: %s",
                         len(self._collections), len(self._documents), len(self._attachments), len(self._objects_by_key), len(self._dirty_objects), len(self._new_objects), len(self._deleted_objects))
-                self._push_deleted()
                 self._push_updates()
-                logger.info("---- Finished Pull Request ----\n\tAt Version: %s", self._version)
+                self._push_deleted()
+                logger.info("---- Finished Push ----\n\tAt Version: %s", self._version)
             except (PreConditionFailed, StaleLocalData) as e:
                 if (nested < 4):
                     logger.info("-- Local Data Stale Initiating Pull --")
@@ -516,6 +561,7 @@ class ZoteroLibrary(object):
                     raise SyncError from e
         except PyZoteroError as e:
             raise SyncError from e
+        self._checkpoint()
         logger.info("---- Finished Push Request ----\n\tAt Version: %s", self._version)
 
     def _new_items_creation_order(self):
@@ -572,18 +618,30 @@ class ZoteroLibrary(object):
             raise ConsistencyError("All Dirty Objects Should Have Been Processed")
         logger.info("-- Updates Succesfully Processed --")
 
-    def _process_update_response(self, resp):
+    def _process_update_response(self, resp, objects):
         """ Handles the server response from an update request """
         for obj in resp["success"].values():
             self._objects_by_key[obj].dirty = False
         for obj in resp["unchanged"].values():
             self._objects_by_key[obj].dirty = False
         self._checkpoint()
-        if (len(resp["failed"]) > 0):
-            if (int(next(iter(resp["failed"].values())).get("code", None)) == 412):
+        createnew = []
+        for idx in resp["failed"]:
+            if (int(resp["failed"][idx].get("code", 0)) == 404 and re.match(".*doesn't exist", resp["failed"][idx].get("message", ""))):
+                obj = objects[int(idx)]
+                obj['version'] = 0
+                createnew.append(obj)
+            elif (int(resp["failed"][idx].get("code", 0)) == 412):
                 raise StaleLocalData
             else:
-                raise UpdateRejected
+                raise UpdateRejected("Updated Rejected with failed values", resp)
+        if (len(createnew) > 0):
+            logger.info("ERROR 404: Some objects didn't exist on server...trying to create them")
+            if (isinstance(createnew[0], ZoteroCollection)):
+                resp = self._server.create_collections(createnew, last_modified=int(self._server.request.headers.get('last-modified-version', 0)))
+            else:
+                resp = self._server.create_items(createnew, last_modified=int(self._server.request.headers.get('last-modified-version', 0)))
+            self._process_update_response(resp, createnew)
         else:
             logger.info("\tUpdate Succeeded")
             self._version = int(self._server.request.headers.get('last-modified-version', 0))
@@ -601,7 +659,7 @@ class ZoteroLibrary(object):
             return True
         else:
             resp = self._server.create_items(payload, last_modified=self._version)
-            self._process_update_response(resp)
+            self._process_update_response(resp, payload)
         return True
 
     def _server_update_collections(self, cols):
@@ -615,7 +673,7 @@ class ZoteroLibrary(object):
             return True
         else:
             resp = self._server.create_collectionss(payload, last_modified=self._version)
-            self._process_update_response(resp)
+            self._process_update_response(resp, payload)
         return True
 
     def _server_delete_items(self, items):
@@ -1162,18 +1220,18 @@ class ZoteroObject(object):
 
     @property
     def data(self):
-        return self._data.copy()
+        return copy.deepcopy(self._data)
     
     @property
     def modified_data(self):
         if self.new:
-            return self._data
+            return copy.deepcopy(self._data)
         modified = dict()
         modified["version"] = self._data["version"]
         modified["key"] = self._data["key"]
         if (self.dirty):
             for k in self._changed_from:
-                modified[k] = self._data[k]
+                modified[k] = copy.deepcopy(self._data[k])
         return modified
 
 
@@ -1477,6 +1535,9 @@ class ZoteroItem(ZoteroObject):
 
     @creators.setter
     def creators(self, val):
+        for c in val:
+            if not c.creator:
+                raise InvalidProperty("Can't have empty name for a creator")
         self._set_property("creators", [c.to_dict() for c in val])
 
 

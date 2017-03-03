@@ -64,7 +64,7 @@ def test_creator_person(creator_first, creator_second):
     assert dhruva.firstname == 'Dhruva R.'
     assert dhruva.lastname == 'Chakrabarti'
     assert dhruva.first_initial == 'D'
-    assert dhruva.first_initial_only() is False
+    assert dhruva.first_initials_only() is False
     clean_dhruva = dhruva.clean()
     assert clean_dhruva.firstname == 'Dhruva R.'
     assert clean_dhruva.lastname == 'Chakrabarti'
@@ -76,7 +76,7 @@ def test_creator_person(creator_first, creator_second):
     assert cate.firstname == 'V . '
     assert cate.lastname == ' Cate'
     assert cate.first_initial == 'V'
-    assert cate.first_initial_only() is True
+    assert cate.first_initials_only() is True
     clean_cate = cate.clean()
     assert clean_cate.firstname == 'V.'
     assert clean_cate.lastname == 'Cate'
@@ -84,7 +84,7 @@ def test_creator_person(creator_first, creator_second):
     assert gross.firstname == ' t '
     assert gross.lastname == 'Gross'
     assert gross.first_initial == 'T'
-    assert gross.first_initial_only() is True
+    assert gross.first_initials_only() is True
     clean_gross = gross.clean()
     assert clean_gross.firstname == 'T.'
     assert clean_gross.lastname == 'Gross'
@@ -96,7 +96,7 @@ def test_pair_persons(persons_second_with_alt):
     cate_alt = persons[2]
     gross = persons[1]
     gross_alt = persons[3]
-    assert cate_alt.first_initial_only() is False
+    assert cate_alt.first_initials_only() is False
     assert cate_alt.first_initial == 'V'
     assert cate.same(cate_alt)
     assert cate_alt.same(cate)
@@ -111,6 +111,42 @@ def test_pair_persons(persons_second_with_alt):
     assert merge_gross.firstname == 'Tomas M.'
     assert merge_gross.lastname == 'Gross'
 
+
+def test_person_clean_period_firsts():
+    per_one = Person(last="Shirriff", first="K W")
+    per_two = Person(last="Shirriff", first="K. W.")
+    assert per_one.clean().firstname == "K.W."
+    assert per_two.clean().firstname == "K.W."
+
+
+def test_person_first_inistials_only():
+    per = Person(last='', first="W.V.O.")
+    assert per.first_initials_only()
+    per = Person(last='', first="W.V.")
+    assert per.first_initials_only()
+    per = Person(last='', first="W V")
+    assert per.first_initials_only()
+    per = Person(last='', first="WV")
+    assert per.first_initials_only()
+    per = Person(last='', first="W. V.O")
+    assert per.first_initials_only()
+    per = Person(last='', first="W V O. ")
+    assert per.first_initials_only()
+    per = Person(last='', first="W V O. M.")
+    assert not per.first_initials_only()
+    per = Person(last='', first="W V Omal")
+    assert not per.first_initials_only()
+    per = Person(last='', first="Wv")
+    assert not per.first_initials_only()
+
+
+def test_person_merge_onearg():
+    per = Person(last='van den Berg', first="Benno")
+    merge = Person.merge(per)
+    assert merge.firstname == "Benno"
+    assert merge.lastname == "van den Berg"
+
+
 def test_person_merge_nofirsts():
     per_one = Person(last="Testlast", first="")
     per_two = Person(last="testlast", first="")
@@ -118,6 +154,33 @@ def test_person_merge_nofirsts():
     merge = Person.merge(per_one, per_two, per_three)
     assert merge.firstname == ""
     assert merge.lastname == "Testlast"
+
+
+def test_person_merge_period_same():
+    per_one = Person(last="Shirriff", first="K. W.")
+    per_two = Person(last="Shirriff", first="K. W.")
+    merge = Person.merge(per_one, per_two)
+    assert merge.firstname == "K.W."
+    assert merge.lastname == "Shirriff"
+
+
+def test_person_merge_period_firsts():
+    per_one = Person(last="Shirriff", first="K W")
+    per_two = Person(last="Shirriff", first="K. W.")
+    merge = Person.merge(per_one, per_two)
+    assert merge.firstname == "K.W."
+    assert merge.lastname == "Shirriff"
+
+
+def test_doc_merger_empty_creator(empty_doc_merger):
+    zmerge = empty_doc_merger
+    two_empty_creatorlist = [[], []]
+    one_empty_creatorlist = [[]]
+    merged_two = zmerge.merge_creators(two_empty_creatorlist)
+    merged_one = zmerge.merge_creators(one_empty_creatorlist)
+    assert len(merged_two) == 0
+    assert len(merged_one) == 0
+
 
 def test_doc_merger_creator(empty_doc_merger, creator_challenge):
     zmerge = empty_doc_merger
@@ -159,13 +222,16 @@ def test_doc_merger_creator(empty_doc_merger, creator_challenge):
     assert keith_contrib.firstname == 'Keith D.'
     assert keith_contrib.lastname == 'Cooper'
 
+
 def test_doc_merger_relations(empty_doc_merger):
     merged = empty_doc_merger.merge_relations([{'dc:replaces': ['one', 'two']}, {'dc:replaces': ['two', 'three']}])
     assert merged == {'dc:replaces': ['one', 'two', 'two', 'three']}
 
+
 def test_doc_merger_relations_with_str(empty_doc_merger):
     merged = empty_doc_merger.merge_relations([{'dc:replaces': ['one', 'two']}, {'dc:replaces': 'two'}])
     assert merged == {'dc:replaces': ['one', 'two', 'two']}
+
 
 def test_real_merge(double_doc_simple_merger):
     zmerge = double_doc_simple_merger

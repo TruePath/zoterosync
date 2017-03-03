@@ -3,6 +3,9 @@ import itertools
 from zoterosync.library import Person
 from zoterosync.library import Creator
 import re
+import logging
+
+logger = logging.getLogger('zoterosync.merge')
 
 
 class DuplicateFinder(object):
@@ -107,6 +110,9 @@ class ZoteroDocumentMerger(object):
         return result
 
     def apply_merge(self, tuple, result):
+        keylist = functools.reduce(lambda x, y: x + y['key'] + ',', tuple, "")
+        keylist = keylist[:-1]
+        logger.debug("Applying merge for docs: %s", keylist)
         target = next(filter(lambda x: x.type == result['itemType'], tuple))
         for i in (i for i in tuple if i != target):
             i.delete()
@@ -129,6 +135,9 @@ class ZoteroDocumentMerger(object):
     def build_merges(self):
         for dups in self.duplicates():
             self._to_merge = tuple(dups)
+            keylist = functools.reduce(lambda x, y: x + y['key'] + ',', self._to_merge, "")
+            keylist = keylist[:-1]
+            logger.debug("Building merge for docs: %s", keylist)
             merge = dict()
             self._cur_item_type = self.merge_itemType([i['itemType'] for i in self._to_merge])
             merge["itemType"] = self._cur_item_type
@@ -137,11 +146,14 @@ class ZoteroDocumentMerger(object):
             self._merges[self._to_merge] = merge
 
     def merge_creators(self, vals):
-        creators = [c for list in vals for c in list if c.type in self._library.item_creator_types[self._cur_item_type]]
+        logger.debug("Merge creators called with %s", str(vals))
+        creators = [c.clean() for list in vals for c in list if c.type in self._library.item_creator_types[self._cur_item_type]]
+        creators = [c for c in creators if c.creator]
         grouping = dict()
 
         def in_group(per, key):
             return next(filter(lambda x: per.same(x), grouping[key]), False)
+
         for p in (p.creator for p in creators):
             match_iter = filter(lambda y: in_group(p, y), grouping.copy())
             group = next(match_iter, False)
@@ -151,6 +163,7 @@ class ZoteroDocumentMerger(object):
                 while (merge_group):
                     grouping[group].update(grouping[merge_group])
                     del grouping[merge_group]
+                    merge_group = next(match_iter, False)
             else:
                 grouping[p] = {p}
         mapping = dict()
@@ -166,6 +179,7 @@ class ZoteroDocumentMerger(object):
             if ((person, type) not in used):
                 used.add((person, type))
                 result.append(Creator.factory(person.firstname, person.lastname, type))
+        logger.debug("Merge creators returned with %s", str(result))
         return result
 
 

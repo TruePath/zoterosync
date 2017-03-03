@@ -175,6 +175,11 @@ class ZoteroLibraryStore(object):
         self.library.pull()
         self.dirty = True
 
+    def push(self):
+        self.dirty = True
+        self.library.push()
+        self.save()
+
     def load_config(self, conf_path=None):
         conf_path = self._conf_path if conf_path is None else conf_path
         try:
@@ -400,9 +405,14 @@ def init(store, user, key):
 @cli.command()
 @click.pass_obj
 def pull(store):
-    store.load()
     store.pull()
     store.save()
+
+
+@cli.command()
+@click.pass_obj
+def push(store):
+    store.push()
 
 
 def set_force(ctx, param, value):
@@ -410,9 +420,11 @@ def set_force(ctx, param, value):
 
 
 @cli.command()
-@click.option('--force', is_flag=True, callback=set_force, expose_value=False)
+# @click.option('--force', is_flag=True, callback=set_force, expose_value=False)
 @click.pass_obj
 def reset(store):
+    store.force = True
+    store.clear_backups()
     store.init_library()
     store.save()
 
