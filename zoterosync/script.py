@@ -120,9 +120,12 @@ def style_obj_listing(obj, long=False, full=False, key_color='white', value_colo
         if (full):
             display_keys = display_keys + [k for k in obj if k not in display_keys]
         if (obj.dirty):
-            output += click.style(obj["key"] + " (modified)\n", fg=modified_color, bold=True, reset=False)
+            output += click.style(obj["key"] + " (modified)", fg=modified_color, bold=True, reset=False)
         else:
-            output += click.style(obj["key"] + "\n", fg=key_color, bold=True, reset=False)
+            output += click.style(obj["key"], fg=key_color, bold=True, reset=False)
+        if (isinstance(obj, ZoteroAttachment) and obj.missing):
+            output += click.style(" MISSING", fg="red", bold=True, reset=False)
+        output += "\n"
         for key in display_keys:
             if (obj[key]):
                 output += click.style("\t" + key, fg=(modified_color if obj.dirty_key(key) else key_color), reset=False)
@@ -166,6 +169,7 @@ class ZoteroLibraryStore(object):
         self.dirty = False
         self.library_path = None
         self.datadir = None
+        self.zoterodir = None
         self._conf_path = conf_path
         self._num_backups = num_backups
         self.load()
@@ -196,6 +200,8 @@ class ZoteroLibraryStore(object):
                     self.library_path = Path(config['library'])
                 if ('datadir' in config):
                     self.datadir = Path(config['datadir'])
+                if ('zoterodir' in config):
+                    self.zoterodir = Path(config['zoterodir'])
         except (IOError, FileNotFoundError, PermissionError, KeyError):
             pass
 
@@ -209,7 +215,9 @@ class ZoteroLibraryStore(object):
             config['library'] = str(self.library_path)
         if (self.datadir):
             config['datadir'] = str(self.datadir)
-        logger.info("Writing config: %s", str(config))
+        if (self.zoterodir):
+            config['zoterodir'] = str(self.zoterodir)
+        logger.debug("Writing config: %s", str(config))
         with conf_path.open(mode='w', encoding='utf8') as conf_file:
             json.dump(config, conf_file)
 
@@ -218,6 +226,11 @@ class ZoteroLibraryStore(object):
         self.dirty = True
         self.dangerous = True
         self.library.checkpoint_function = self.write_library
+        if (self.datadir):
+            self.library.datadir = self.datadir
+            self.library.use_relative_paths = False
+        if (self.zoterodir):
+            self.library.zoterodir = self.zoterodir
         logger.info("Initialized Library")
 
     def write_library(self, dest=None):
@@ -242,6 +255,8 @@ class ZoteroLibraryStore(object):
                 if (self.datadir):
                     self.library.datadir = self.datadir
                     self.library.use_relative_paths = False
+                if (self.zoterodir):
+                    self.library.zoterodir = self.zoterodir
         except (IOError, FileNotFoundError, PermissionError):
             return False
         return True
@@ -389,7 +404,7 @@ class ZoteroLibraryStore(object):
             else:
                 click.secho("Displayed {} collections / {} total (non-deleted) collections".format(displayed, len(self.library.collections)), bold=True)
 
-    def find_link(self, attach, attach_path, directory):
+    def find_file(self, attach, attach_path, directory):
         tail = Path('')
         residue = attach_path
         while (residue != Path('.') and residue != Path('/')):
@@ -401,15 +416,19 @@ class ZoteroLibraryStore(object):
                 attach.path = path
                 break
 
-    def find_links(self, directory=None, relaxed=False):
+    def find_files(self, filetype=ZoteroLinkedFile, directory=None, relaxed=False):
         if (directory is None):
             if (self.datadir):
                 directory = self.datadir
             else:
                 raise Exception("No directory specified")
-        for linked in (l for l in self.library.attachments if (isinstance(l, ZoteroLinkedFile) and l.missing and l.path)):
-            self.find_link(linked, linked.path, directory)
-            if (linked.missing and relaxed):
+        if (filetype == ZoteroLinkedFile):
+            genexp = (l for l in self.library.attachments if (isinstance(l, ZoteroLinkedFile) and l.missing and l.path))
+        elif (filetype == ZoteroImportedFile):
+            genexp = (l for l in self.library.attachments if (isinstance(l, ZoteroImportedFile) and l.missing and l.local_missing and l.path))
+        for linked in genexp:
+            self.find_file(linked, linked.path, directory)
+            if (linked.missing and relaxed and (not filetype == ZoteroImportedFile or linked.local_missing)):
                 stem = linked.path.stem
                 stripped_stem = re.sub('(_\d|[(]\d[)])\Z', '', stem)
                 suffix = linked.path.suffix
@@ -428,27 +447,51 @@ class ZoteroLibraryStore(object):
                     logger.info("Replacing path %s with %s in %s", str(linked.path), str(newpath), '#' + str(linked.key))
                     linked.path = newpath
 
-    def dedup_linked_files(self):
+    def dedup_child_files(self):
         for doc in self.library.documents:
-            doc.remove_dup_linked_file_children
+            doc.remove_dup_child_files()
+
+    def fix(self):
+        logger.info("Fixing attachments with no real parent")
+        for attach in self.library.attachments:
+            if (attach.parent and attach.parent.version < 0):
+                logger.debug("Removing parent %s from attachment %s", attach.parent.key, attach.key)
+                del attach.parent
+            if (attach._data.get('parentItem', False) == ''):
+                logger.debug("parentItem should be False not blank for attach %s", attach.key)
+                del attach.parent
+
+    def upload(self):
+        self.library.upload_missing_attachments()
+
+    def delete(self, keys):
+        for key in keys:
+            logger.info("Deleting %s", key)
+            self.library.get_obj_by_key(re.sub('#', '', key)).delete()
 
 
 @click.group()
-@click.option('--config', '-c', type=click.Path(), default=os.path.expanduser('~/.zotero_config'), envvar="ZOTERO_CONFIG",
-              help="File storing zoterosync config in human readable format.\nPulled from enviornment variable ZOTEROSYNC_CONFIG or default to ~/.zoterosync_config")
+@click.option('--config', '-c', type=click.Path(), default=os.path.expanduser('~/.zotero/zotero_config'), envvar="ZOTERO_CONFIG",
+              help="File storing zoterosync config in human readable format.\nPulled from enviornment variable ZOTEROSYNC_CONFIG or default to ~/.zotero/zotero_config\nIf passed a directory DIR defaults to DIR/zotero_config")
 @click.pass_context
 def cli(ctx, config):
+    zoterodir = Path(os.path.abspath(os.path.expanduser('~/.zotero')))
     conf_path = Path(os.path.abspath(config))
+    if zoterodir in conf_path.parents:
+        zoterodir.mkdir(exist_ok=True)
+    if conf_path.is_dir():
+        conf_path = conf_path.joinpath('zotero_config')
     ctx.obj = ZoteroLibraryStore(conf_path=conf_path)
 
 
 @cli.command()
 @click.option('--user', default=None, type=int)
 @click.option('--key', default=None)
-@click.option('--library', type=click.Path(), help="File storing the local library.  default is ~/.zoterosync_library")
+@click.option('--library', type=click.Path(), help="File storing the local library.  default is ~/.zotero/zoterosync_library")
 @click.option('--datadir', type=click.Path(), help="Directory under which linked files are stored.")
+@click.option('--zoterodir', type=click.Path(), help="Directory used for internal files etc.. default is ~/.zotero.")
 @click.pass_obj
-def conf(store, user, key, library, datadir):
+def conf(store, user, key, library, datadir, zoterodir):
     if user:
         store.user = user
     if key:
@@ -456,7 +499,11 @@ def conf(store, user, key, library, datadir):
     if library:
         store.library_path = Path(library)
     elif (store.library_path is None):
-        store.library_path = Path(os.path.expanduser('~/.zotero_library'))
+        store.library_path = Path(os.path.expanduser('~/.zotero/zotero_library'))
+    if zoterodir:
+        store.zoterodir = Path(zoterodir)
+    elif (store.zoterodir is None):
+        store.zoterodir = Path(os.path.expanduser('~/.zotero'))
     if datadir:
         if Path(datadir).exists():
             store.datadir = Path(datadir)
@@ -660,16 +707,50 @@ def lscol(store, long, show_modified, deleted, sort, full, name, key, parent, ch
 @click.option('--directory', '-d',  type=click.Path(), help="Directory to scan.")
 @click.option('--relaxed', '-r', is_flag=True)
 @click.pass_obj
-def find_links(store, directory, relaxed):
+def find_files(store, directory, relaxed):
     if (directory):
-        store.find_links(directory=Path(directory).resolve(), relaxed=relaxed)
+        store.find_files(filetype=ZoteroLinkedFile, directory=Path(directory).resolve(), relaxed=relaxed)
     else:
-        store.find_links(relaxed=relaxed)
+        store.find_files(filetype=ZoteroLinkedFile, relaxed=relaxed)
+    store.write_library()
+
+
+@cli.command()
+@click.option('--directory', '-d',  type=click.Path(), help="Directory to scan.")
+@click.option('--relaxed', '-r', is_flag=True)
+@click.pass_obj
+def find_imported(store, directory, relaxed):
+    if (directory):
+        store.find_files(filetype=ZoteroImportedFile, directory=Path(directory).resolve(), relaxed=relaxed)
+    else:
+        store.find_files(filetype=ZoteroImportedFile, relaxed=relaxed)
     store.write_library()
 
 
 @cli.command()
 @click.pass_obj
-def dedup_linked_files(store):
-    store.dedup_linked_files()
+def dedup_files(store):
+    store.dedup_child_files()
+    store.write_library()
+
+
+@cli.command()
+@click.pass_obj
+def fix(store):
+    store.fix()
+    store.write_library()
+
+
+@cli.command()
+@click.pass_obj
+def upload(store):
+    store.upload()
+    store.write_library()
+
+
+@cli.command()
+@click.argument('keys', nargs=-1)
+@click.pass_obj
+def delete(store, keys):
+    store.delete(keys)
     store.write_library()

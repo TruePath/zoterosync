@@ -14,6 +14,8 @@ import editdistance
 from pathlib import Path
 from nameparser import HumanName
 import filecmp
+import hashlib
+import tempfile
 
 # create logger
 logger = logging.getLogger('zoterosync.library')
@@ -27,6 +29,13 @@ logger = logging.getLogger('zoterosync.library')
 # we can print each item's item type and ID
 # for item in items:
 # print('Item: {0} | Key: {1}'.format(item['data']['itemType'], item['data']['key']))
+
+def md5(path):
+    hash_md5 = hashlib.md5()
+    with path.open(mode="rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
 
 def subclassfactory(fact_method):
@@ -76,7 +85,16 @@ class UpdateRejected(SyncError):
 class ConsistencyError(ZoteroLibraryError):
     """ Cached data is inconsistant with itself or server
     """
-    pass
+    
+    def __init__(self, msg="Consistency Error", obj=None):
+        self.obj = obj
+        self.msg = msg
+
+    def __str__(self):
+        if (self.obj is not None):
+            return (self.msg + "\n" + str(self.obj))
+        else:
+            return self.msg
 
 
 class InvalidData(ZoteroLibraryError):
@@ -459,8 +477,24 @@ class ZoteroLibrary(object):
         self.checkpoint_function = None
         self._revert = False
         self.datadir = Path('')
+        self.zoterodir = Path(tempfile.gettempdir())
         self.use_relative_paths = False
+        self._downloads = set()
+        self._uploads = set()
         logger.debug("Initialize ZoteroLibrary")
+
+    def request_download(self, attach):
+        self._downloads.add(attach)
+
+    def cancel_download(self, attach):
+        if (not attach.download):
+            self._downloads.discard(attach)
+
+    def _mark_file_dirty(self, attach):
+        self._uploads.add(attach)
+
+    def _mark_file_clean(self, attach):
+        self._uploads.discard(attach)
 
     @property
     def documents(self):
@@ -510,8 +544,10 @@ class ZoteroLibrary(object):
         if (self._version is not None):
             params['since'] = self._version
             deleted = self._server.deleted(**params)
-            logger.info("%s Objects Deleted On Server", len(deleted))
+            logger.info("%s Collections Deleted On Server", len(deleted["collections"]))
+            logger.info("%s Items Deleted On Server", len(deleted["items"]))
             for key in (i for k in deleted if (k == "items" or k == "collections") for i in deleted[k]):
+                logger.debug("Object with key %s is deleted on server", key)
                 if (key in self._objects_by_key):
                     obj = self._objects_by_key[key]
                     obj._remove(refresh=True)
@@ -570,6 +606,14 @@ class ZoteroLibrary(object):
             raise SyncError from e
         self._checkpoint()
         logger.info("---- Finished Push Request ----\n\tAt Version: %s", self._version)
+
+    def upload_missing_attachments(self):
+        logger.info("Uploading missing attachments")
+        for attach in (i for i in self.attachments if isinstance(i, ZoteroImportedFile) and i.missing and not i.local_missing):
+            logger.info("Uploading attachment %s", attach.key)
+            self._server.upload_attachments([attach.data])
+            logger.info("Finished uploading attachment %s", attach.key)
+            self.checkpoint()
 
     def _new_items_creation_order(self):
         """ Returns a list of the new objects so that objects always occur before children """
@@ -840,12 +884,18 @@ class ZoteroLibrary(object):
     def _recieve_item(self, dict):
         """Called on any item recieved from self._server
         """
+        if (int(dict['data']['version']) < 0):
+            raise InvalidData(dict['data'], "Version < 0")
+        if ("itemType" not in dict['data']):
+            raise InvalidData(dict['data'], "No ItemType")
         try:
             key = dict['data']['key']
             if (key in self._objects_by_key):
                 self._objects_by_key[key].refresh(dict)
             else:
-                ZoteroItem.factory(self, dict)
+                item = ZoteroItem.factory(self, dict)
+                if (isinstance(item, ZoteroAttachment) and "itemType" not in item._data):
+                    raise ConsistencyError("How did attachment without itemtype get created?", item._data)
             self._itemkeys_for_refresh.discard(key)
             logger.debug("Removing key %s from _itemkeys_for_refresh", key)
             assert key not in self._itemkeys_for_refresh
@@ -855,6 +905,8 @@ class ZoteroLibrary(object):
     def _recieve_collection(self, dict):
         """Called on any item recieved from self._server
         """
+        if (int(dict['data']['version']) < 0):
+            raise InvalidData(dict['data'], "Version < 0")
         try:
             key = dict['data']['key']
             if (key in self._objects_by_key):
@@ -890,8 +942,19 @@ class ZoteroLibrary(object):
         self._documents.add(obj)
 
     def _register_attachment(self, obj):
+        if (not isinstance(obj, ZoteroAttachment)):
+            ConsistencyError("Can't register non-attachment as attachment", obj._data)
         self._attachments.add(obj)
-        if (obj.md5 is not None):
+        if (obj.md5):
+            if (obj.md5 in self._attachments_by_md5s):
+                self._attachments_by_md5s[obj.md5].add(obj)
+            else:
+                self._attachments_by_md5s[obj.md5] = {obj}
+
+    def _register_hash_change(self, obj, oldhash):
+        if oldhash in self._attachments_by_md5s:
+            self._attachments_by_md5s[oldhash].discard(obj)
+        if (obj.md5):
             if (obj.md5 in self._attachments_by_md5s):
                 self._attachments_by_md5s[obj.md5].add(obj)
             else:
@@ -999,6 +1062,9 @@ class ZoteroObject(object):
                 raise InvalidData(dict) from e
         else:
             self._data = dict(key=arg, version=-1)
+            logger.debug("Created empty object with key %s", arg)
+            if (isinstance(self, ZoteroAttachment)):
+                raise ConsistencyError("Attachments shouldn't get created empty", arg)
         self._library._register_obj(self)
 
     def __repr__(self):
@@ -1518,7 +1584,10 @@ class ZoteroItem(ZoteroObject):
 
     @property
     def type(self):
-        return self._data["itemType"]
+        try:
+            return self._data["itemType"]
+        except KeyError:
+            raise ConsistencyError("Object lacking an itemType field", self._data)
 
     @property
     def url(self):
@@ -1585,6 +1654,60 @@ class ZoteroDocument(ZoteroItem):
             logger.debug("Marking linked file %s for deletion", link.key)
             link.delete()
 
+    def remove_dup_child_files(self):
+        used = set()
+        dup_map = dict()
+        for attach in self.children:
+            if attach in used:
+                continue
+            else:
+                dup_map[attach] = {attach}
+                used.add(attach)
+            for oattach in (o for o in self.children if o not in used):
+                if attach.identical_file(oattach):
+                    used.add(oattach)
+                    dup_map[attach].add(oattach)
+        for equiv in dup_map.values():
+            best = None
+            rank = 5
+            for attach in equiv:
+                if (rank == 0):
+                    break
+                if (best is None):
+                    best = attach
+                    continue
+                if (isinstance(attach, ZoteroImportedFile) and not attach.missing and not attach.dirty_file):
+                    if (isinstance(best, ZoteroLinkedUrl) or isinstance(best, ZoteroImportedUrl) or
+                            not attach.local_missing or best.local_missing or best.missing or best.dirty_file or not isinstance(best, ZoteroImportedFile)):
+                        best = attach
+                        rank = 0
+                    continue
+                if (rank == 1):
+                    continue
+                if (isinstance(attach, ZoteroLinkedFile) and not attach.missing):
+                    if (isinstance(best, ZoteroLinkedUrl) or isinstance(best, ZoteroImportedUrl) or
+                            best.missing or (isinstance(best, ZoteroImportedFile) and best.dirty_file)):
+                        best = attach
+                        rank = 1
+                    continue
+                if (rank == 2):
+                    continue
+                if (isinstance(attach, ZoteroImportedFile) and not attach.local_missing):
+                    if (isinstance(best, ZoteroLinkedUrl) or isinstance(best, ZoteroImportedUrl) or (best.local_missing and best.missing )):
+                        best = attach
+                        rank = 2
+                    continue
+                if (rank == 3):
+                    continue
+                if (isinstance(attach, ZoteroImportedUrl) and not attach.local_missing):
+                    if (isinstance(best, ZoteroLinkedUrl) or (best.local_missing and best.missing)):
+                        best = attach
+                        rank = 3
+            for attach in equiv:
+                logger.debug("Keeping child %s of class %s missing: %s, local_missing: %s, dirty_file %s", best.key, str(best.__class__.__name__), str(best.missing), str(best.local_missing), str(isinstance(best, ZoteroImported) and best.dirty_file))
+                if attach != best:
+                    logger.debug("- Deleting child %s of class %s missing: %s, local_missing: %s, dirty_file %s", attach.key, str(attach.__class__.__name__), str(attach.missing), str(attach.local_missing), str(isinstance(attach, ZoteroImported) and attach.dirty_file))
+                    attach.delete()
 
 class ZoteroAttachment(ZoteroItem):
 
@@ -1595,6 +1718,8 @@ class ZoteroAttachment(ZoteroItem):
         try:
             if (dict["data"]["linkMode"] == "linked_file"):
                     return ZoteroLinkedFile
+            elif (dict["data"]["linkMode"] == "linked_url"):
+                    return ZoteroLinkedUrl
             elif (dict["data"]["linkMode"] == "imported_file"):
                     return ZoteroImportedFile
             elif (dict["data"]["linkMode"] == "imported_url"):
@@ -1606,7 +1731,37 @@ class ZoteroAttachment(ZoteroItem):
 
     def __init__(self, library, arg):
         super().__init__(library, arg)
+        if ("itemType" not in self._data):
+            raise ConsistencyError("Attachments should never be created without itemTypes", self._data)
+        self._md5 = None
+        self._fulltext = None
         self._library._register_attachment(self)
+
+
+    def _file_change(self, old=None, new=None, oldmd5=None):
+        """Make any changes required when the attachment data changes"""
+        newmd5 = None
+        try:
+            if (not new or not new.is_file()):
+                    self._md5 = None
+                    self._library._register_hash_change(self, oldmd5)
+                    return False
+            else:
+                if(old and old.is_file()):                
+                    if filecmp.cmp(str(old), str(new), shallow=False):
+                        return False
+                newmd5 = md5(new)
+                if (self._md5 and newmd5 == self._md5):
+                    return False
+        except (OSError, PermissionError, FileNotFoundError):
+            pass
+        self._md5 = newmd5
+        self._library._register_hash_change(self, oldmd5)
+        return True
+
+    def properties(self):
+        yield "url"
+        yield from super().properties()
 
     def _set_property(self, pkey, pval):
         # logger.debug("called _set_property in ZoteroAttachment")
@@ -1618,18 +1773,13 @@ class ZoteroAttachment(ZoteroItem):
         else:
             super()._set_property(pkey, pval)
 
-    def properties(self):
-        yield "md5"
-        yield "sha1"
-        yield "url"
-        yield "filename"
-        yield from super().properties()
-
     def __getitem__(self, pkey):
         if (pkey == "md5"):
-            return self.md5
+            return self._data.get("md5", "")
+        if (pkey == "mtime"):
+            return int(self._data.get("mtime", 0))
         elif (pkey == "sha1"):
-            return self.sha1
+            return self._data.get("sha1", "")
         elif (pkey == "url"):
             return self.url
         elif (pkey == "filename"):
@@ -1637,17 +1787,27 @@ class ZoteroAttachment(ZoteroItem):
         else:
             return super().__getitem__(pkey)
 
+    def __setitem__(self, pkey, pval):
+        if (pkey == "filename"):
+            self.filename = pval
+        else:
+            return super().__setitem__(pkey, pval)
+
     @property
     def link_mode(self):
         return self._data["linkMode"]
 
     @property
     def md5(self):
-            return self._data.get("md5", "")
-
-    @property
-    def sha1(self):
-            return self._data.get("sha1", "")
+        try:
+            if self._md5:
+                return self._md5
+            if (self.path and self.path.is_file()):
+                self._md5 = md5(self.path)
+                return self._md5
+        except (OSError, PermissionError, FileNotFoundError):
+            pass
+        return ''
 
     @property
     def url(self):
@@ -1657,21 +1817,40 @@ class ZoteroAttachment(ZoteroItem):
     def filename(self):
         return self._data.get("filename", "")
 
+    @filename.setter
+    def filename(self, val):
+        return (self._set_property("filename", val))
+
     def __str__(self):
         return self.link_mode + ": " + self.name
 
-
-class ZoteroLinkedFile(ZoteroAttachment):
-
-    def _set_property(self, pkey, pval):
-        # logger.debug("called _set_property in ZoteroLinkedFile")
-        if (pkey == "linkMode"):
-            if (pval != "linked_file"):
-                raise InvalidProperty("Can't change attachment linkMode")
-            else:
-                return
+    @property
+    def local_missing(self):
+        if (not self.path or not self.path.is_file()):
+            return True
         else:
-            super()._set_property(pkey, pval)
+            return False
+
+    @property
+    def remote_md5(self):
+        return None 
+
+    def identical_file(self, other):
+        if (self.md5 and other.md5 and self.md5 == other.md5):
+            return True
+        if (self.md5 and not other.md5 and other.remote_md5 == self.md5):
+            return True
+        if (other.md5 and not self.md5 and self.remote_md5 == other.md5):
+            return True
+        if (not other.md5 and not self.md5 and self.remote_md5 and self.remote_md5 == other.md5):
+            return True
+        if (self.path and self.path == other.path):
+            return True
+        return False
+
+
+class ZoteroLinked(ZoteroAttachment):
+    """Parent class for attachments kept on local FS...assuming that can include linked_urls"""
 
     def __getitem__(self, pkey):
         if (pkey == 'path'):
@@ -1691,18 +1870,28 @@ class ZoteroLinkedFile(ZoteroAttachment):
         else:
             return super().__delitem__(pkey)
 
+    def properties(self):
+        yield "path"
+        yield from super().properties()
+
+    @property
+    def dirty_file(self):
+        return False
+
     @property
     def path(self):
         if (self._data.get('path', '')):
             pth = Path(self._data['path'])
-            if (self.datadir and isinstance(self.datadir, Path)):
-                pth = self.datadir.joinpath(pth)
+            if (self._library.datadir and isinstance(self._library.datadir, Path)):
+                pth = self._library.datadir.joinpath(pth)
             return pth
         else:
             return None
 
     @path.setter
     def path(self, val):
+        orig = self.path
+        origmd5 = self.md5
         if (val is None or val == ""):
             self._set_property("path", "")
         if (not isinstance(val, Path)):
@@ -1714,25 +1903,168 @@ class ZoteroLinkedFile(ZoteroAttachment):
             except ValueError:
                 pass
         self._set_property("path", str(path))
+        self._file_change(old=orig, new=self.path, oldmd5=origmd5)
 
     @property
     def missing(self):
-        if (not self.path.is_file()):
-            return True
+        return self.local_missing
+
+
+class ZoteroLinkedFile(ZoteroLinked):
+
+    def _set_property(self, pkey, pval):
+        # logger.debug("called _set_property in ZoteroLinkedFile")
+        if (pkey == "linkMode"):
+            if (pval != "linked_file"):
+                raise InvalidProperty("Can't change attachment linkMode")
+            else:
+                return
         else:
-            return False
+            super()._set_property(pkey, pval)
 
     @property
     def name(self):
         return str(self.path)
 
-    def identical_file(self, other):
-        if (self.missing or other.missing):
+class ZoteroImported(ZoteroAttachment):
+    """Parent class for ImportedFile and ImportedUrl"""
+
+    def __init__(self, library, arg):
+        self._local_file = None
+        super().__init__(library, arg)
+        self.bdiff_file = None
+        if (self.path and self.path.is_file()):
+            self._local_file = self.path
+        elif (self.filename and self._library.zoterodir.joinpath(self.filename).is_file()):
+            self._local_file = self._library.zoterodir.joinpath(self.filename)  # temp downloads saved here
+        self._dirty_file = False
+        self.dirty_file = (self.missing and not self.local_missing) or (self.md5 and self['md5'] and str(self.md5) != self['md5'])
+        self._download = False
+        self._remote_file = self.path if self.md5 == self['md5'] else None
+
+    @property
+    def dirty_file(self):
+        return self._dirty_file
+
+    @property
+    def remote_md5(self):
+        return self['md5']
+
+    @dirty_file.setter
+    def dirty_file(self, val):
+        self._dirty_file = val
+        if (val):
+            self._library._mark_file_dirty(self)
+        else:
+            self._library._mark_file_clean(self)
+            self._clear_bdiff()
+
+    @property
+    def download(self):
+        return self._download
+
+    @download.setter
+    def dirty_file(self, val):
+        self._download = val
+        if (val):
+            self._library.request_download(self)
+        else:
+            self._library.cancel_download(self)
+
+    @property
+    def local_file(self):
+        return self._local_file
+
+    def _build_bdiff():
+        if (not self._remote_file or not self._remote_file.is_file() or not self.local_file or not self.local_file.is_file()):
+            raise ConsistencyError("Can't create bdiff without two inputs")
+        name = self._local_file.name + '.bsdiff-patch'
+        newpath = self.zoterodir.joinpath(name)
+        if newpath.exists():
+            i = 0
+            newpath = self.zoterodir.joinpath(name + '.' + str(i))
+            while (newpath.exists()):
+                i += 1
+                newpath = newpath.with_suffix('.' + str(i))
+        logger.info("Creating binary diff from %s to %s and saving in %s", str(self._remote_file), str(self.local_file), str(newpath))
+        bsdiff4.file_diff(str(self._remote_file), str(self.local_file), str(newpath))
+        self.bdiff_file = newpath
+
+    def _clear_bdiff():
+        if (self.bdiff_file and self.bdiff_file.is_file()):
+            os.remove(str(self.bdiff_file))
+        self.bdiff_file = None
+
+    @local_file.setter
+    def local_file(self, newfile):
+        oldmd5 = self.md5
+        self._file_change(old=self.local_file, new=self.path, oldmd5=oldmd5)
+
+    def _file_change(self, old=None, new=None, oldmd5=None):
+        if (not new or not new.is_file()):
+            self.dirty_file = False
+            self.download = False
+        self._local_file = new
+        if (super()._file_change(old=old, new=new, oldmd5=oldmd5)):  # ensures new and new.is_file() and new differs from old in some way
+            if self.md5 == self['md5']:
+                self._remote_file = self._local_file
+                self.dirty_file = False
+                self.download = False
+            else:
+                self.dirty_file = True
+                if (not self.missing):
+                    if (self._remote_file):
+                        self._build_bdiff()
+                    else:
+                        self.download = True  # we need a copy of old file to update
+
+
+    def properties(self):
+        yield "filename"
+        yield from super().properties()
+
+    @property
+    def missing(self):
+        if (not self['md5'] and not self['sha1']):
+            return True
+        else:
             return False
-        return filecmp.cmp(self.path, other.path, shallow=False)
+
+    @property
+    def path(self):
+        if (self.local_file):
+            return self.local_file
+        if (self.filename):
+            pth = Path(self.filename)
+            if (self._library.datadir and isinstance(self._library.datadir, Path)):
+                pth = self._library.datadir.joinpath(pth)
+            return pth
+        else:
+            return None
+
+    @path.setter
+    def path(self, val):
+        oldmd5 = self.md5
+        if (val is None or val == ""):
+            self.filename = ""
+        if (not isinstance(val, Path)):
+            val = Path(val)
+        path = val
+        if (self._library.use_relative_paths):
+            try:
+                path = val.relative_to(self.datadir)
+            except ValueError:
+                pass
+        self.filename = str(path)
+        self._file_change(old=self.local_file, new=self.path, oldmd5=oldmd5)
+
+    @property
+    def name(self):
+        return self.filename
 
 
-class ZoteroImportedFile(ZoteroAttachment):
+class ZoteroImportedFile(ZoteroImported):
+
 
     def _set_property(self, pkey, pval):
         # logger.debug("called _set_property in ZoteroImportedFile")
@@ -1744,24 +2076,26 @@ class ZoteroImportedFile(ZoteroAttachment):
         else:
             super()._set_property(pkey, pval)
 
-    @property
-    def missing(self):
-        if (not self.md5 and not self.sha1):
-            return True
-        else:
-            return False
 
-    @property
-    def name(self):
-        return self.filename
-
-
-class ZoteroImportedUrl(ZoteroAttachment):
+class ZoteroImportedUrl(ZoteroImported):
 
     def _set_property(self, pkey, pval):
         # logger.debug("called _set_property in ZoteroImportedFile")
         if (pkey == "linkMode"):
             if (pval != "imported_url"):
+                raise InvalidProperty("Can't change attachment linkMode")
+            else:
+                return
+        else:
+            super()._set_property(pkey, pval)
+
+
+class ZoteroLinkedUrl(ZoteroLinked):
+
+    def _set_property(self, pkey, pval):
+        # logger.debug("called _set_property in ZoteroImportedFile")
+        if (pkey == "linkMode"):
+            if (pval != "linked_url"):
                 raise InvalidProperty("Can't change attachment linkMode")
             else:
                 return
@@ -1774,7 +2108,10 @@ class ZoteroImportedUrl(ZoteroAttachment):
 
     @property
     def missing(self):
-        return False
+        if (not self.url):
+            return True
+        else:
+            return False
 
 
 class ZoteroCollection(ZoteroObject):

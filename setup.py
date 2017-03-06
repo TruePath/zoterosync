@@ -23,7 +23,7 @@ setup(name='zoterosync',
         'Programming Language :: Python :: 3.5',
       ],
       install_requires=[
-        'Click', 'pyzotero', 'python-dateutil', 'nameparser'
+        'Click', 'pyzotero', 'python-dateutil', 'nameparser', 'bsdiff4'
       ],
       setup_requires=['pytest-runner'],
       tests_require=['pytest'],
