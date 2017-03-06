@@ -23,12 +23,12 @@ setup(name='zoterosync',
         'Programming Language :: Python :: 3.5',
       ],
       install_requires=[
-        'Click', 'pyzotero', 'python-dateutil'
+        'Click', 'pyzotero', 'python-dateutil', 'nameparser'
       ],
       setup_requires=['pytest-runner'],
       tests_require=['pytest'],
       zip_safe=False,
       entry_points='''
         [console_scripts]
-        zoterosync=zoterosync.script:cli
+        zotero=zoterosync.script:cli
     ''')

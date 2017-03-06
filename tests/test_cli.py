@@ -13,7 +13,7 @@ import pickle
 def test_cli_init():
     runner = CliRunner()
     with runner.isolated_filesystem():
-        result = runner.invoke(script.cli, ['init', '--key=testbalh', '--user=57867'])
+        result = runner.invoke(script.cli, ['--config=.zoterosync_config', 'conf', '--key=testbalh', '--user=57867', '--library=.zoterosync_library'])
         assert result.exit_code == 0
         with Path(os.path.abspath('.zoterosync_config')).open(mode='r', encoding='utf8') as conf_file:
             config = json.load(conf_file)

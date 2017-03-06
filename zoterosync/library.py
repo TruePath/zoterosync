@@ -13,6 +13,7 @@ import itertools
 import editdistance
 from pathlib import Path
 from nameparser import HumanName
+import filecmp
 
 # create logger
 logger = logging.getLogger('zoterosync.library')
@@ -158,6 +159,7 @@ class Person(object):
         return False
 
     def first_initials_only(self):
+        """Returns true if the firstname is only initials"""
         if (re.match('\A(\s*\w([ .]|\Z)\s*\.?){1,3}\s*\Z', self.firstname.strip()) or re.match('\A\s*[A-Z]\s*[A-Z]\s*\.?\s*\Z', self.firstname.strip())):
             return True
         else:
@@ -216,6 +218,9 @@ class Person(object):
             first_ini = functools.reduce(lambda x, y: y if counts[y] > counts[x] else x, counts, next(iter(counts)))
             logger.debug("Called Person.merge gave first_ini: %s", first_ini)
             people = [p for p in people if p.first_initial == first_ini]
+            people_full_firstnames = [p for p in people if not p.first_initials_only()]
+            if (len(people_full_firstnames) > 0):
+                people = people_full_firstnames
             counts = dict()
             for p in people:
                 first = re.split('[\s.]', p.firstname, 1)[0].casefold()
@@ -453,6 +458,8 @@ class ZoteroLibrary(object):
         self.dry_run = False
         self.checkpoint_function = None
         self._revert = False
+        self.datadir = Path('')
+        self.use_relative_paths = False
         logger.debug("Initialize ZoteroLibrary")
 
     @property
@@ -1565,6 +1572,19 @@ class ZoteroDocument(ZoteroItem):
     def __str__(self):
         return self.type + ": " + self.name
 
+    def remove_dup_linked_file_children(self):
+        dups = set()
+        for link in (o for o in self.children if o.link_mode == "linked_file" and not o.missing):
+            if link in dups:
+                continue
+            for olink in (o for o in self.children if o.link_mode == "linked_file" and not o.missing and o not in dups and not o == link):
+                if link.identical_file(olink):
+                    dups.add(olink)
+                    logger.debug("Linked File %s has duplicate %s adding %s to dups", link.key, olink.key, olink.key)
+        for link in dups:
+            logger.debug("Marking linked file %s for deletion", link.key)
+            link.delete()
+
 
 class ZoteroAttachment(ZoteroItem):
 
@@ -1637,11 +1657,6 @@ class ZoteroAttachment(ZoteroItem):
     def filename(self):
         return self._data.get("filename", "")
 
-    @property
-    def name(self):
-        effective_filename = self.filename if self.filename else Path(self._data.get("path", "")).name
-        return effective_filename if effective_filename else ("#" + self.key)
-
     def __str__(self):
         return self.link_mode + ": " + self.name
 
@@ -1658,6 +1673,64 @@ class ZoteroLinkedFile(ZoteroAttachment):
         else:
             super()._set_property(pkey, pval)
 
+    def __getitem__(self, pkey):
+        if (pkey == 'path'):
+            return self.path
+        else:
+            return super().__getitem__(pkey)
+
+    def __setitem__(self, pkey, pval):
+        if (pkey == "path"):
+            self.path = pval
+        else:
+            super().__setitem__(pkey, pval)
+
+    def __delitem__(self, pkey):
+        if (pkey == 'path'):
+            self.path = ''
+        else:
+            return super().__delitem__(pkey)
+
+    @property
+    def path(self):
+        if (self._data.get('path', '')):
+            pth = Path(self._data['path'])
+            if (self.datadir and isinstance(self.datadir, Path)):
+                pth = self.datadir.joinpath(pth)
+            return pth
+        else:
+            return None
+
+    @path.setter
+    def path(self, val):
+        if (val is None or val == ""):
+            self._set_property("path", "")
+        if (not isinstance(val, Path)):
+            val = Path(val)
+        path = val
+        if (self._library.use_relative_paths):
+            try:
+                path = val.relative_to(self.datadir)
+            except ValueError:
+                pass
+        self._set_property("path", str(path))
+
+    @property
+    def missing(self):
+        if (not self.path.is_file()):
+            return True
+        else:
+            return False
+
+    @property
+    def name(self):
+        return str(self.path)
+
+    def identical_file(self, other):
+        if (self.missing or other.missing):
+            return False
+        return filecmp.cmp(self.path, other.path, shallow=False)
+
 
 class ZoteroImportedFile(ZoteroAttachment):
 
@@ -1670,6 +1743,17 @@ class ZoteroImportedFile(ZoteroAttachment):
                 return
         else:
             super()._set_property(pkey, pval)
+
+    @property
+    def missing(self):
+        if (not self.md5 and not self.sha1):
+            return True
+        else:
+            return False
+
+    @property
+    def name(self):
+        return self.filename
 
 
 class ZoteroImportedUrl(ZoteroAttachment):
@@ -1686,7 +1770,11 @@ class ZoteroImportedUrl(ZoteroAttachment):
 
     @property
     def name(self):
-        return self.url if self.url else ("#" + self.key)
+        return self.url
+
+    @property
+    def missing(self):
+        return False
 
 
 class ZoteroCollection(ZoteroObject):
