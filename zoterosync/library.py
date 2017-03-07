@@ -16,6 +16,7 @@ from nameparser import HumanName
 import filecmp
 import hashlib
 import tempfile
+import shutil
 
 # create logger
 logger = logging.getLogger('zoterosync.library')
@@ -111,6 +112,11 @@ class InvalidData(ZoteroLibraryError):
 
 class InvalidProperty(ZoteroLibraryError):
     """ Raised if an attempt is made to set a property to an invalid value
+    """
+    pass
+
+class InvalidPath(ZoteroLibraryError):
+    """ Raised if an attempt is made to use a path that is invalid
     """
     pass
 
@@ -471,12 +477,12 @@ class ZoteroLibrary(object):
         self._version = None
         self._collkeys_for_refresh = set()
         self._itemkeys_for_refresh = set()
-        self._next_version = None
+        self._next_version = 0
         self.abort = False
-        self.dry_run = False
+        self.force_update = False
         self.checkpoint_function = None
         self._revert = False
-        self.datadir = Path('')
+        self.datadir = None
         self.zoterodir = Path(tempfile.gettempdir())
         self.use_relative_paths = False
         self._downloads = set()
@@ -553,11 +559,12 @@ class ZoteroLibrary(object):
                     obj._remove(refresh=True)
                     self._deleted_objects.discard(obj)
         item_vers = self._server.item_versions(**params)
-        self._next_version = int(self._server.request.headers.get('last-modified-version', 0))
+        self._next_version = max(self._next_version, int(self._server.request.headers.get('last-modified-version', 0)))
         for key in item_vers:
             if (key not in self._objects_by_key or self._objects_by_key[key].version < item_vers[key]):
                 self._itemkeys_for_refresh.add(key)
         coll_vers = self._server.collection_versions(**params)
+        self._next_version = max(self._next_version, int(self._server.request.headers.get('last-modified-version', 0)))
         for key in coll_vers:
             if (key not in self._objects_by_key or self._objects_by_key[key].version < coll_vers[key]):
                 self._collkeys_for_refresh.add(key)
@@ -566,9 +573,9 @@ class ZoteroLibrary(object):
         self._refresh_queued_collections()
         self._refresh_queued_items()
         if (len(self._collkeys_for_refresh) == 0 and len(self._itemkeys_for_refresh) == 0):
-            if (self._next_version is not None):
+            if (self._next_version):
                 self._version = self._next_version
-                self._next_version = None
+                self._next_version = 0
 
     def pull(self):
         logger.info("---- Initiating Pull Request ----\n\tFrom Version: %s", self._version)
@@ -599,8 +606,12 @@ class ZoteroLibrary(object):
                     logger.info("-- Local Data Stale Initiating Pull --")
                     self.pull()
                     logger.info("-- Reinitiating Push --")
+                    logger.info("-- Setting Force to True --")
+                    self.force_update = True
                     self.push(nested=(nested + 1))
+                    self.force_update = False  # Total hack...ideally should track down why this needed
                 else:
+                    self.force_update = False
                     raise SyncError from e
         except PyZoteroError as e:
             raise SyncError from e
@@ -613,7 +624,8 @@ class ZoteroLibrary(object):
             logger.info("Uploading attachment %s", attach.key)
             self._server.upload_attachments([attach.data])
             logger.info("Finished uploading attachment %s", attach.key)
-            self.checkpoint()
+            self._checkpoint()
+        self.pull()
 
     def _new_items_creation_order(self):
         """ Returns a list of the new objects so that objects always occur before children """
@@ -671,6 +683,7 @@ class ZoteroLibrary(object):
 
     def _process_update_response(self, resp, objects):
         """ Handles the server response from an update request """
+        self._version = max(self._version, int(self._server.request.headers.get('last-modified-version', 0)))
         for obj in resp["success"].values():
             self._objects_by_key[obj].dirty = False
         for obj in resp["unchanged"].values():
@@ -695,8 +708,7 @@ class ZoteroLibrary(object):
             self._process_update_response(resp, createnew)
         else:
             logger.info("\tUpdate Succeeded")
-            self._version = int(self._server.request.headers.get('last-modified-version', 0))
-            self._next_version = None
+            self._version = max(self._version, int(self._server.request.headers.get('last-modified-version', 0)))
             return True
 
     def _server_update_items(self, items):
@@ -705,12 +717,11 @@ class ZoteroLibrary(object):
         keylist = keylist[:-1]  # drop final ,
         logger.info("\tUPDATE ITEM REQUEST: version: %s items: %s", self._version, keylist)
         payload = [i.modified_data for i in items]
-        if (self.dry_run):
-            print("Calling create_items with version {} and items {}".format(self._version, keylist))
-            return True
-        else:
-            resp = self._server.create_items(payload, last_modified=self._version)
-            self._process_update_response(resp, payload)
+        if (self.force_update):
+            for i in payload:
+                i['version'] = self._version
+        resp = self._server.create_items(payload, last_modified=self._version)
+        self._process_update_response(resp, payload)
         return True
 
     def _server_update_collections(self, cols):
@@ -719,12 +730,8 @@ class ZoteroLibrary(object):
         keylist = keylist[:-1]  # drop final ,
         logger.info("\tUPDATE COLLECTION REQUEST: version: %s collections: %s", self._version, keylist)
         payload = [i.modified_data for i in cols]
-        if (self.dry_run):
-            print("Calling create_collections with version {} and items {}".format(self._version, keylist))
-            return True
-        else:
-            resp = self._server.create_collectionss(payload, last_modified=self._version)
-            self._process_update_response(resp, payload)
+        resp = self._server.create_collectionss(payload, last_modified=self._version)
+        self._process_update_response(resp, payload)
         return True
 
     def _server_delete_items(self, items):
@@ -732,14 +739,10 @@ class ZoteroLibrary(object):
         keylist = functools.reduce(lambda x, y: x + y['key'] + ',', items, "")
         keylist = keylist[:-1]  # drop final ,
         logger.info("\tDELETE ITEM REQUEST: version: %s items: %s", self._version, keylist)
-        if (self.dry_run):
-            print("Calling delete_item with version {} and items {}".format(self._version, keylist))
-            return True
-        else:
-            rval = self._server.delete_item(items, last_modified=self._version)
+        rval = self._server.delete_item(items, last_modified=self._version)
         if (rval):
-            self._version = int(self._server.request.headers.get('last-modified-version', 0))
-            self._next_version = None
+            self._version = max(self._version, int(self._server.request.headers.get('last-modified-version', 0)))
+            self._next_version = 0
             for i in items:
                 i.dirty = False
             self._checkpoint()
@@ -752,14 +755,10 @@ class ZoteroLibrary(object):
         keylist = functools.reduce(lambda x, y: x + y['key'] + ',', cols, "")
         keylist = keylist[:-1]  # drop final ,
         logger.info("\tDELETE COLLECTION REQUEST: version: %s collections: %s", self._version, keylist)
-        if (self.dry_run):
-            print("Calling delete_collection with version {} and collections {}".format(self._version, keylist))
-            return True
-        else:
-            rval = self._server.delete_collection(items, last_modified=self._version)
+        rval = self._server.delete_collection(items, last_modified=self._version)
         if (rval):
-            self._version = int(self._server.request.headers.get('last-modified-version', 0))
-            self._next_version = None
+            self._version = max(self._version, int(self._server.request.headers.get('last-modified-version', 0)))
+            self._next_version = 0
             for i in items:
                 i.dirty = False
             self._checkpoint()
@@ -1703,11 +1702,13 @@ class ZoteroDocument(ZoteroItem):
                     if (isinstance(best, ZoteroLinkedUrl) or (best.local_missing and best.missing)):
                         best = attach
                         rank = 3
-            for attach in equiv:
-                logger.debug("Keeping child %s of class %s missing: %s, local_missing: %s, dirty_file %s", best.key, str(best.__class__.__name__), str(best.missing), str(best.local_missing), str(isinstance(best, ZoteroImported) and best.dirty_file))
-                if attach != best:
-                    logger.debug("- Deleting child %s of class %s missing: %s, local_missing: %s, dirty_file %s", attach.key, str(attach.__class__.__name__), str(attach.missing), str(attach.local_missing), str(isinstance(attach, ZoteroImported) and attach.dirty_file))
-                    attach.delete()
+            if (len(equiv) > 1):
+                for attach in equiv:
+                    logger.debug("Keeping child %s of class %s missing: %s, local_missing: %s, dirty_file %s", best.key, str(best.__class__.__name__), str(best.missing), str(best.local_missing), str(isinstance(best, ZoteroImported) and best.dirty_file))
+                    if attach != best:
+                        logger.debug("- Deleting child %s of class %s missing: %s, local_missing: %s, dirty_file %s", attach.key, str(attach.__class__.__name__), str(attach.missing), str(attach.local_missing), str(isinstance(attach, ZoteroImported) and attach.dirty_file))
+                        attach.delete()
+
 
 class ZoteroAttachment(ZoteroItem):
 
@@ -1777,7 +1778,7 @@ class ZoteroAttachment(ZoteroItem):
         if (pkey == "md5"):
             return self._data.get("md5", "")
         if (pkey == "mtime"):
-            return int(self._data.get("mtime", 0))
+            return self._data.get("mtime", '')
         elif (pkey == "sha1"):
             return self._data.get("sha1", "")
         elif (pkey == "url"):
@@ -1813,14 +1814,6 @@ class ZoteroAttachment(ZoteroItem):
     def url(self):
             return self._data.get("url", "")
 
-    @property
-    def filename(self):
-        return self._data.get("filename", "")
-
-    @filename.setter
-    def filename(self, val):
-        return (self._set_property("filename", val))
-
     def __str__(self):
         return self.link_mode + ": " + self.name
 
@@ -1848,9 +1841,70 @@ class ZoteroAttachment(ZoteroItem):
             return True
         return False
 
+    def rename_file(self, newpath, operation='move', change_missing=False):
+        """Renames associated file.  Operation can be move, link or copy.  Avoids overwriting by appending _i
+        If change_missing updates path even if path is missing"""
+        try:
+            if (not isinstance(newpath, Path)):
+                newpath = Path(newpath)
+            if (self.local_missing):
+                if (change_missing):
+                    self.path = newpath
+                return False
+            i = 0
+            suffix = ''
+            stem = Path(newpath.name)
+            while(stem.suffix):
+                suffix = stem.suffix + suffix
+                stem = Path(stem.stem)
+            newpath_stem = str(stem)
+            while(newpath.exists()):
+                if (filecmp.cmp(str(self.path), str(newpath), shallow=False)):
+                    logger.info("Identical file exists at destination")
+                    self.path = newpath
+                    return True
+                newpath = newpath.with_name(newpath_stem + '_' + str(i) + suffix)
+                i += 1
+            logger.info("Performing %s on %s to %s", operation, self.path, newpath)
+            if (operation == 'link'):
+                os.link(str(self.path), str(newpath))
+            elif (operation == 'copy'):
+                shutil.copyfile(str(self.path), str(newpath))
+            elif (operation == 'move'):
+                shutil.move(str(self.path), str(newpath))
+            if (newpath.is_file()):
+                self.path = newpath
+            else:
+                raise ConsistencyError("WTF file wasn't created")
+            return True
+        except (PermissionError, OSError, IOError):
+            logger.error("Rename file %s to %s failed with error", str(self.path), str(newpath))
+            return False
 
-class ZoteroLinked(ZoteroAttachment):
-    """Parent class for attachments kept on local FS...assuming that can include linked_urls"""
+    def move_file(self, newdir, operation='move', change_missing=False):
+        """Like rename file but moves file to a new directory"""
+        if (not isinstance(newdir, Path)):
+            newdir = Path(newdir)
+        if (not newdir.is_dir()):
+            raise InvalidPath("move_file only accepts directories")
+        newfile = newdir.joinpath(self.path.name)
+        logger.info("Calling rename file with path %s", str(newfile))
+        return self.rename_file(newfile, operation=operation, change_missing=change_missing)
+
+    @property
+    def inside_datadir(self):
+        if (not self._library.datadir):
+            raise InvalidPath("datadir unset")
+        if (not self.path):
+            return True
+        try:
+            path = self.path.relative_to(self._library.datadir)
+            return True
+        except ValueError:  # raised if can't relativize to self._library.datadir
+            return False
+
+
+class ZoteroLinkedFile(ZoteroAttachment):
 
     def __getitem__(self, pkey):
         if (pkey == 'path'):
@@ -1897,20 +1951,29 @@ class ZoteroLinked(ZoteroAttachment):
         if (not isinstance(val, Path)):
             val = Path(val)
         path = val
-        if (self._library.use_relative_paths):
+        if (self._library.use_relative_paths and self._library.datadir):
             try:
-                path = val.relative_to(self.datadir)
+                path = val.relative_to(self._library.datadir)
             except ValueError:
                 pass
         self._set_property("path", str(path))
         self._file_change(old=orig, new=self.path, oldmd5=origmd5)
 
     @property
+    def filename(self):
+        if (self.path):
+            return self.path.name
+        else:
+            return ''
+
+    @filename.setter
+    def filename(self, val):
+        pval = val if isinstance(val, Path) else Path(val)
+        self.path = self.path.parent.joinpath(pval)
+
+    @property
     def missing(self):
         return self.local_missing
-
-
-class ZoteroLinkedFile(ZoteroLinked):
 
     def _set_property(self, pkey, pval):
         # logger.debug("called _set_property in ZoteroLinkedFile")
@@ -2003,7 +2066,7 @@ class ZoteroImported(ZoteroAttachment):
     def _file_change(self, old=None, new=None, oldmd5=None):
         if (not new or not new.is_file()):
             self.dirty_file = False
-            self.download = False
+            self._download = False
         self._local_file = new
         if (super()._file_change(old=old, new=new, oldmd5=oldmd5)):  # ensures new and new.is_file() and new differs from old in some way
             if self.md5 == self['md5']:
@@ -2050,9 +2113,9 @@ class ZoteroImported(ZoteroAttachment):
         if (not isinstance(val, Path)):
             val = Path(val)
         path = val
-        if (self._library.use_relative_paths):
+        if (self._library.use_relative_paths and self._library.datadir):
             try:
-                path = val.relative_to(self.datadir)
+                path = val.relative_to(self._library.datadir)
             except ValueError:
                 pass
         self.filename = str(path)
@@ -2061,6 +2124,14 @@ class ZoteroImported(ZoteroAttachment):
     @property
     def name(self):
         return self.filename
+
+    @property
+    def filename(self):
+        return self._data.get("filename", "")
+
+    @filename.setter
+    def filename(self, val):
+        return (self._set_property("filename", val))
 
 
 class ZoteroImportedFile(ZoteroImported):
@@ -2090,7 +2161,7 @@ class ZoteroImportedUrl(ZoteroImported):
             super()._set_property(pkey, pval)
 
 
-class ZoteroLinkedUrl(ZoteroLinked):
+class ZoteroLinkedUrl(ZoteroAttachment):
 
     def _set_property(self, pkey, pval):
         # logger.debug("called _set_property in ZoteroImportedFile")
@@ -2103,6 +2174,31 @@ class ZoteroLinkedUrl(ZoteroLinked):
             super()._set_property(pkey, pval)
 
     @property
+    def inside_datadir(self):
+        return True
+
+    @property
+    def filename(self):
+        return None
+
+    @filename.setter
+    def filename(self, val):
+        raise InvalidProperty("linked_url can't accept filename")
+
+    @property
+    def local_file(self):
+        return None
+
+    @property
+    def path(self):
+        return None
+
+    @path.setter
+    def path(self, val):
+        pass
+        # raise InvalidProperty("linked_url can't accept path values")
+
+    @property
     def name(self):
         return self.url
 
@@ -2112,6 +2208,10 @@ class ZoteroLinkedUrl(ZoteroLinked):
             return True
         else:
             return False
+
+    @property
+    def local_missing(self):
+        return True
 
 
 class ZoteroCollection(ZoteroObject):

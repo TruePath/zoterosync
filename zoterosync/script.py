@@ -13,6 +13,7 @@ from pathlib import Path
 import json
 import pickle
 from shutil import copyfile
+import shutil
 from zoterosync.merge import SimpleZDocMerger
 import logging
 import re
@@ -469,6 +470,55 @@ class ZoteroLibraryStore(object):
             logger.info("Deleting %s", key)
             self.library.get_obj_by_key(re.sub('#', '', key)).delete()
 
+    def organize(self, keep_unused=False):
+        if (not self.datadir):
+            raise Exception("Must set datadir")
+        unused_files = set(self.datadir.rglob('[!.]*'))
+        used_files = set()
+        for att in self.library.attachments:
+            if (isinstance(att, ZoteroLinkedFile) or att.local_missing):
+                continue
+            if (att.inside_datadir):
+                if (not att.path in unused_files and not att.path in used_files):
+                    raise Exception("Attachment claims to be in datadir but not in file lists, key: {} path: {}".format(att.key, att.path))
+                unused_files.discard(att.path)
+                used_files.add(att.path)
+            else:
+                logger.info("Moving file %s", str(att.path))
+                if (att.move_file(self.datadir, operation='move', change_missing=False)):
+                    unused_files.discard(att.path)
+                    used_files.add(att.path)
+                else:
+                    logger.error("Failed to move some files falling back to keeping unused")
+                    keep_unused = True
+                logger.info("Checkpoint")
+                self.write_library()
+        if (not keep_unused):
+            logger.info("Moving unused files into unused subdir")
+            unused_dir = self.datadir.joinpath('Unused')
+            unused_dir.mkdir(exist_ok=True)
+            if (not unused_dir.is_dir()):
+                raise Exception("Uhoh not a directory")
+            for f in unused_files:
+                logger.info("Moving file %s into unused subdir", str(f))
+                i = 0
+                suffix = ''
+                stem = Path(f.name)
+                dest = unused_dir.joinpath(stem)
+                while(stem.suffix):
+                    suffix = stem.suffix + suffix
+                    stem = Path(stem.stem)
+                dest_stem = str(stem)
+            while(dest.exists()):
+                if (filecmp.cmp(str(f), str(dest), shallow=False)):
+                    logger.info("Deleting file %s as it is identical to dest", str(f))
+                    os.remove(str(f))
+                    break
+                dest = dest.with_name(dest_stem + '_' + str(i) + suffix)
+                i += 1
+            if (f.exists()):  # if we deleted it as dup can't copy it
+                shutil.move(str(f), str(dest))
+
 
 @click.group()
 @click.option('--config', '-c', type=click.Path(), default=os.path.expanduser('~/.zotero/zotero_config'), envvar="ZOTERO_CONFIG",
@@ -509,6 +559,9 @@ def conf(store, user, key, library, datadir, zoterodir):
             store.datadir = Path(datadir)
         else:
             raise Exception("Data directory must exist")
+    elif (store.datadir is None):
+        logger.warning("Setting datadir to ~/.zotero...this probably isn't what you want")
+        store.datadir = Path(os.path.expanduser('~/.zotero'))
     store.force = True
     if (store.library is None):
         store.init_library()
@@ -753,4 +806,12 @@ def upload(store):
 @click.pass_obj
 def delete(store, keys):
     store.delete(keys)
+    store.write_library()
+
+
+@cli.command()
+@click.option('--keep_unused', '-k', is_flag=True, help="Don't organize unused files into their own subdirectory")
+@click.pass_obj
+def organize(store, keep_unused):
+    store.organize(keep_unused=keep_unused)
     store.write_library()

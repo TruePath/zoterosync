@@ -193,7 +193,9 @@ class SimpleZDocMerger(ZoteroDocumentMerger):
 
     @staticmethod
     def build_name_key(string):
-        return re.sub('\W', '', string.casefold())
+        result = re.sub('\.(pdf|ps|djvu?|webarchive|html?|mobi|ebook)', '', string.casefold())
+        result = re.sub('\W', '', result)
+        return result
 
     def find_duplicates(self):
         for i in self._library.documents:
